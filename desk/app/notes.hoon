@@ -13,6 +13,8 @@
       notes=(map @ud note:notes)
       members=(map @ud notebook-members:notes)
       next-id=@ud
+      updates=(map @ud u-notes:notes)
+      next-update-id=@ud
   ==
 --
 =|  state=raw-state
@@ -38,7 +40,7 @@
   |=  old=vase
   ^-  (quip card _this)
   =/  s=state-0:notes  !<(state-0:notes old)
-  :_  this(state [notebooks.s folders.s notes.s members.s next-id.s])
+  :_  this(state [notebooks.s folders.s notes.s members.s next-id.s updates.s next-update-id.s])
   :~  [%pass /eyre/notes %arvo %e %connect [~ /notes] %notes]
   ==
 ::
@@ -59,10 +61,20 @@
         [%give %kick [/http-response/[eyre-id.req]]~ ~]
     ==
   ::
+      %notes-command
+    =/  cmd=c-notes:notes
+      !<(c-notes:notes vase)
+    =/  act=a-notes:notes
+      (command-to-action:hc cmd)
+    $(mark %notes-action, vase !>(act))
+  ::
       %notes-action
-    ?>  =(our src):bowl
-    =/  act=action:notes
-      !<(action:notes vase)
+    =/  no-act=a-notes:notes
+      !<(a-notes:notes vase)
+    =/  cmd=c-notes:notes
+      (action-to-command:hc no-act src.bowl)
+    =/  act=a-notes:notes
+      (command-to-action:hc cmd)
     ?-  -.act
         %create-notebook
       ::  allocate notebook id and root folder id
@@ -81,8 +93,7 @@
           members    (~(put by members.state) nid mbrs)
           next-id    rfid
         ==
-      :_  this(state next)
-      (event-cards:hc [%notebook-created nid src.bowl])
+      (commit-update:hc next [%notebook-created nid src.bowl])
     ::
         %rename-notebook
       =/  nb=notebook:notes  (need-notebook:hc notebook-id.act)
@@ -91,49 +102,27 @@
         nb(title title.act, updated-at now.bowl)
       =/  next=raw-state
         state(notebooks (~(put by notebooks.state) notebook-id.act new-nb))
-      :_  this(state next)
-      (event-cards:hc [%notebook-renamed notebook-id.act src.bowl])
+      (commit-update:hc next [%notebook-renamed notebook-id.act src.bowl])
     ::
-        %invite-member
+        %join
       =/  nb=notebook:notes  (need-notebook:hc notebook-id.act)
-      ?>  (is-owner:hc notebook-id.act src.bowl)
       =/  mbrs=notebook-members:notes
-        (~(got by members.state) notebook-id.act)
+        (~(gut by members.state) notebook-id.act *(map ship role:notes))
       =/  new-mbrs=notebook-members:notes
-        (~(put by mbrs) who.act role.act)
+        (~(put by mbrs) src.bowl %editor)
       =/  next=raw-state
         state(members (~(put by members.state) notebook-id.act new-mbrs))
-      :_  this(state next)
-      (event-cards:hc [%member-invited notebook-id.act who.act role.act src.bowl])
+      (commit-update:hc next [%member-joined notebook-id.act src.bowl src.bowl])
     ::
-        %remove-member
+        %leave
       =/  nb=notebook:notes  (need-notebook:hc notebook-id.act)
-      ?>  (is-owner:hc notebook-id.act src.bowl)
-      ::  cannot remove yourself as owner
-      ?<  =(who.act src.bowl)
       =/  mbrs=notebook-members:notes
-        (~(got by members.state) notebook-id.act)
+        (~(gut by members.state) notebook-id.act *(map ship role:notes))
       =/  new-mbrs=notebook-members:notes
-        (~(del by mbrs) who.act)
+        (~(del by mbrs) src.bowl)
       =/  next=raw-state
         state(members (~(put by members.state) notebook-id.act new-mbrs))
-      :_  this(state next)
-      (event-cards:hc [%member-removed notebook-id.act who.act src.bowl])
-    ::
-        %set-role
-      =/  nb=notebook:notes  (need-notebook:hc notebook-id.act)
-      ?>  (is-owner:hc notebook-id.act src.bowl)
-      ::  cannot change your own role
-      ?<  =(who.act src.bowl)
-      =/  mbrs=notebook-members:notes
-        (~(got by members.state) notebook-id.act)
-      ?>  (~(has by mbrs) who.act)
-      =/  new-mbrs=notebook-members:notes
-        (~(put by mbrs) who.act role.act)
-      =/  next=raw-state
-        state(members (~(put by members.state) notebook-id.act new-mbrs))
-      :_  this(state next)
-      (event-cards:hc [%role-changed notebook-id.act who.act role.act src.bowl])
+      (commit-update:hc next [%member-left notebook-id.act src.bowl src.bowl])
     ::
         %create-folder
       =/  nb=notebook:notes  (need-notebook:hc notebook-id.act)
@@ -150,8 +139,7 @@
             folders  (~(put by folders.state) fid nf)
             next-id  fid
           ==
-        :_  this(state (touch-notebook:hc next notebook-id.act))
-        (event-cards:hc [%folder-created fid notebook-id.act src.bowl])
+        (commit-update:hc (touch-notebook:hc next notebook-id.act) [%folder-created fid notebook-id.act src.bowl])
       ::  parent is root (empty)
       =/  fid=@ud  +(next-id.state)
       =/  nf=folder:notes
@@ -161,8 +149,7 @@
           folders  (~(put by folders.state) fid nf)
           next-id  fid
         ==
-      :_  this(state (touch-notebook:hc next notebook-id.act))
-      (event-cards:hc [%folder-created fid notebook-id.act src.bowl])
+      (commit-update:hc (touch-notebook:hc next notebook-id.act) [%folder-created fid notebook-id.act src.bowl])
     ::
         %rename-folder
       =/  nb=notebook:notes  (need-notebook:hc notebook-id.act)
@@ -173,8 +160,7 @@
         fld(name name.act, updated-at now.bowl)
       =/  next=raw-state
         state(folders (~(put by folders.state) folder-id.act new-fld))
-      :_  this(state (touch-notebook:hc next notebook-id.act))
-      (event-cards:hc [%folder-renamed folder-id.act notebook-id.act src.bowl])
+      (commit-update:hc (touch-notebook:hc next notebook-id.act) [%folder-renamed folder-id.act notebook-id.act src.bowl])
     ::
         %move-folder
       =/  nb=notebook:notes  (need-notebook:hc notebook-id.act)
@@ -190,8 +176,7 @@
         fld(parent-folder-id `new-parent-folder-id.act, updated-at now.bowl)
       =/  next=raw-state
         state(folders (~(put by folders.state) folder-id.act new-fld))
-      :_  this(state (touch-notebook:hc next notebook-id.act))
-      (event-cards:hc [%folder-moved folder-id.act notebook-id.act src.bowl])
+      (commit-update:hc (touch-notebook:hc next notebook-id.act) [%folder-moved folder-id.act notebook-id.act src.bowl])
     ::
         %delete-folder
       =/  nb=notebook:notes  (need-notebook:hc notebook-id.act)
@@ -209,8 +194,7 @@
             folders  (del-many-folders:hc folders.state del-fids)
             notes    (del-many-notes:hc notes.state del-nids)
           ==
-        :_  this(state (touch-notebook:hc next notebook-id.act))
-        (event-cards:hc [%folder-deleted folder-id.act notebook-id.act src.bowl])
+        (commit-update:hc (touch-notebook:hc next notebook-id.act) [%folder-deleted folder-id.act notebook-id.act src.bowl])
       ::  non-recursive: fail if has children
       =/  children=(list @ud)  (folder-children-ids:hc folder-id.act)
       ?>  =(~ children)
@@ -218,8 +202,7 @@
       ?>  =(~ child-notes)
       =/  next=raw-state
         state(folders (~(del by folders.state) folder-id.act))
-      :_  this(state (touch-notebook:hc next notebook-id.act))
-      (event-cards:hc [%folder-deleted folder-id.act notebook-id.act src.bowl])
+      (commit-update:hc (touch-notebook:hc next notebook-id.act) [%folder-deleted folder-id.act notebook-id.act src.bowl])
     ::
         %create-note
       =/  nb=notebook:notes  (need-notebook:hc notebook-id.act)
@@ -245,8 +228,7 @@
           notes    (~(put by notes.state) nid nt)
           next-id  nid
         ==
-      :_  this(state (touch-notebook:hc next notebook-id.act))
-      (event-cards:hc [%note-created nid notebook-id.act src.bowl])
+      (commit-update:hc (touch-notebook:hc next notebook-id.act) [%note-created nid notebook-id.act src.bowl])
     ::
         %rename-note
       =/  nb=notebook:notes  (need-notebook:hc notebook-id.act)
@@ -262,8 +244,7 @@
         ==
       =/  next=raw-state
         state(notes (~(put by notes.state) note-id.act new-nt))
-      :_  this(state (touch-notebook:hc next notebook-id.act))
-      (event-cards:hc [%note-renamed note-id.act notebook-id.act src.bowl])
+      (commit-update:hc (touch-notebook:hc next notebook-id.act) [%note-renamed note-id.act notebook-id.act src.bowl])
     ::
         %move-note
       =/  nb=notebook:notes  (need-notebook:hc notebook-id.act)
@@ -287,8 +268,7 @@
         ?:  =(old-nbid notebook-id.act)
           next2
         (touch-notebook:hc next2 old-nbid)
-      :_  this(state next3)
-      (event-cards:hc [%note-moved note-id.act notebook-id.act folder-id.act src.bowl])
+      (commit-update:hc next3 [%note-moved note-id.act notebook-id.act folder-id.act src.bowl])
     ::
         %delete-note
       =/  nb=notebook:notes  (need-notebook:hc notebook-id.act)
@@ -297,8 +277,7 @@
       ?>  =(notebook-id.nt notebook-id.act)
       =/  next=raw-state
         state(notes (~(del by notes.state) note-id.act))
-      :_  this(state (touch-notebook:hc next notebook-id.act))
-      (event-cards:hc [%note-deleted note-id.act notebook-id.act src.bowl])
+      (commit-update:hc (touch-notebook:hc next notebook-id.act) [%note-deleted note-id.act notebook-id.act src.bowl])
     ::
         %update-note
       =/  nt=note:notes  (need-note:hc note-id.act)
@@ -314,8 +293,7 @@
         ==
       =/  next=raw-state
         state(notes (~(put by notes.state) note-id.act new-nt))
-      :_  this(state (touch-notebook:hc next notebook-id.nt))
-      (event-cards:hc [%note-updated note-id.act notebook-id.nt revision.new-nt src.bowl])
+      (commit-update:hc (touch-notebook:hc next notebook-id.nt) [%note-updated note-id.act notebook-id.nt revision.new-nt src.bowl])
     ::
         %batch-import
       ?>  (can-edit:hc notebook-id.act src.bowl)
@@ -344,9 +322,16 @@
           next-id  +(next-id.state)
         ==
       =.  state  (touch-notebook:hc state notebook-id.act)
+      =/  evt=u-notes:notes  [%note-created nid notebook-id.act src.bowl]
+      =/  seq=@ud  +(next-update-id.state)
+      =.  state
+        %_  state
+          updates          (~(put by updates.state) seq evt)
+          next-update-id   seq
+        ==
       =.  cards
         %+  weld  cards
-        (event-cards:hc [%note-created nid notebook-id.act src.bowl])
+        (event-cards:hc seq evt)
       $(items t.items)
     ::
         %batch-import-tree
@@ -381,9 +366,16 @@
             notes    (~(put by notes.state) nid nt)
             next-id  +(next-id.state)
           ==
+        =/  evt=u-notes:notes  [%note-created nid notebook-id.act src.bowl]
+        =/  seq=@ud  +(next-update-id.state)
+        =.  state
+          %_  state
+            updates          (~(put by updates.state) seq evt)
+            next-update-id   seq
+          ==
         =.  cards
           %+  weld  cards
-          (event-cards:hc [%note-created nid notebook-id.act src.bowl])
+          (event-cards:hc seq evt)
         $(items t.items)
       ::
           %folder
@@ -395,9 +387,16 @@
             folders  (~(put by folders.state) new-fid nf)
             next-id  +(next-id.state)
           ==
+        =/  evt=u-notes:notes  [%folder-created new-fid notebook-id.act src.bowl]
+        =/  seq=@ud  +(next-update-id.state)
+        =.  state
+          %_  state
+            updates          (~(put by updates.state) seq evt)
+            next-update-id   seq
+          ==
         =.  cards
           %+  weld  cards
-          (event-cards:hc [%folder-created new-fid notebook-id.act src.bowl])
+          (event-cards:hc seq evt)
         ::  push current remaining onto stack, descend into children
         $(items children.i.items, stack [[t.items fid] stack], fid new-fid)
       ==
@@ -407,15 +406,19 @@
 ++  on-peek
   |=  =path
   ^-  (unit (unit cage))
-  ?>  =(our src):bowl
   ?+  path  ~
     ::  /x/ui - serve the frontend
       [%x %ui ~]
     ``html+!>(index)
-    ::  /x/notebooks - list all notebooks
+    ::  /x/notebooks - list notebooks visible to caller
       [%x %notebooks ~]
     =/  nbs=(list json)
-      %+  turn  ~(val by notebooks.state)
+      %+  turn
+        %+  murn  ~(tap by notebooks.state)
+        |=  [nid=@ud nb=notebook:notes]
+        ?:  (can-view:hc nid src.bowl)
+          `nb
+        ~
       notebook:enjs:notes-json
     ``json+!>([%a nbs])
     ::  /x/notebook/<id> - get single notebook
@@ -423,10 +426,12 @@
     =/  nid=@ud  (slav %ud i.t.t.path)
     =/  nb=(unit notebook:notes)  (~(get by notebooks.state) nid)
     ?~  nb  ``json+!>(~)
+    ?>  (can-view:hc nid src.bowl)
     ``json+!>((notebook:enjs:notes-json u.nb))
     ::  /x/folders/<notebook-id> - list folders in notebook
       [%x %folders @ ~]
     =/  nid=@ud  (slav %ud i.t.t.path)
+    ?>  (can-view:hc nid src.bowl)
     =/  flds=(list json)
       %+  turn  (all-folders-in-notebook:hc nid)
       folder:enjs:notes-json
@@ -436,10 +441,12 @@
     =/  fid=@ud  (slav %ud i.t.t.path)
     =/  fld=(unit folder:notes)  (~(get by folders.state) fid)
     ?~  fld  ``json+!>(~)
+    ?>  (can-view:hc notebook-id.u.fld src.bowl)
     ``json+!>((folder:enjs:notes-json u.fld))
     ::  /x/notes/<notebook-id> - list notes in notebook
       [%x %notes @ ~]
     =/  nid=@ud  (slav %ud i.t.t.path)
+    ?>  (can-view:hc nid src.bowl)
     =/  nts=(list json)
       %+  turn  (all-notes-in-notebook:hc nid)
       note:enjs:notes-json
@@ -448,6 +455,9 @@
       [%x %notes @ @ ~]
     =/  nid=@ud  (slav %ud i.t.t.path)
     =/  fid=@ud  (slav %ud i.t.t.t.path)
+    ?>  (can-view:hc nid src.bowl)
+    =/  fld=folder:notes  (need-folder:hc fid)
+    ?>  =(notebook-id.fld nid)
     =/  nts=(list json)
       %+  turn  (all-notes-in-folder:hc fid)
       note:enjs:notes-json
@@ -457,10 +467,25 @@
     =/  nid=@ud  (slav %ud i.t.t.path)
     =/  nt=(unit note:notes)  (~(get by notes.state) nid)
     ?~  nt  ``json+!>(~)
+    ?>  (can-view:hc notebook-id.u.nt src.bowl)
     ``json+!>((note:enjs:notes-json u.nt))
+    ::  /x/v0/updates/<notebook-id>/<since-seq> - replay update stream
+      [%x %v0 %updates @ @ ~]
+    =/  nid=@ud  (slav %ud i.t.t.t.path)
+    =/  since=@ud  (slav %ud i.t.t.t.t.path)
+    ?>  (can-view:hc nid src.bowl)
+    =/  ups=(list json)
+      %+  turn  (updates-since:hc nid since)
+      |=  [seq=@ud evt=u-notes:notes]
+      %-  pairs:enjs:format
+      :~  ['seq' (numb:enjs:format seq)]
+          ['event' (event:enjs:notes-json evt)]
+      ==
+    ``json+!>([%a ups])
     ::  /x/members/<notebook-id> - get notebook members
       [%x %members @ ~]
     =/  nid=@ud  (slav %ud i.t.t.path)
+    ?>  (can-view:hc nid src.bowl)
     =/  mbrs=(unit notebook-members:notes)  (~(get by members.state) nid)
     ?~  mbrs  ``json+!>(~)
     =/  mlist=(list json)
@@ -480,8 +505,12 @@
       [%http-response *]
     `this
   ::
-      [%events ~]
-    ?>  =(our src):bowl
+      [%v0 %events notebook-id=@ud ~]
+    ?>  (can-view:hc notebook-id src.bowl)
+    `this
+  ::
+      [%v0 %stream notebook-id=@ud ~]
+    ?>  (can-view:hc notebook-id src.bowl)
     `this
   ==
 ::
@@ -497,6 +526,50 @@
 --
 ::  helper core
 |_  [=bowl:gall state=raw-state]
++*  no-core  .
+    se-core  .
+::  action-to-command: no-core local action to server command
+++  action-to-command
+  |=  [act=a-notes:notes actor=ship]
+  ^-  c-notes:notes
+  ?-  -.act
+      %create-notebook      [%create-notebook title.act actor]
+      %rename-notebook      [%rename-notebook notebook-id.act title.act actor]
+      %join                 [%join notebook-id.act actor]
+      %leave                [%leave notebook-id.act actor]
+      %create-folder        [%create-folder notebook-id.act parent-folder-id.act name.act actor]
+      %rename-folder        [%rename-folder notebook-id.act folder-id.act name.act actor]
+      %move-folder          [%move-folder notebook-id.act folder-id.act new-parent-folder-id.act actor]
+      %delete-folder        [%delete-folder notebook-id.act folder-id.act recursive.act actor]
+      %create-note          [%create-note notebook-id.act folder-id.act title.act body-md.act actor]
+      %rename-note          [%rename-note notebook-id.act note-id.act title.act actor]
+      %move-note            [%move-note note-id.act notebook-id.act folder-id.act actor]
+      %delete-note          [%delete-note note-id.act notebook-id.act actor]
+      %update-note          [%update-note note-id.act body-md.act expected-revision.act actor]
+      %batch-import         [%batch-import notebook-id.act folder-id.act notes.act actor]
+      %batch-import-tree    [%batch-import-tree notebook-id.act parent-folder-id.act tree.act actor]
+  ==
+::
+++  command-to-action
+  |=  cmd=c-notes:notes
+  ^-  a-notes:notes
+  ?-  -.cmd
+      %create-notebook      [%create-notebook title.cmd]
+      %rename-notebook      [%rename-notebook notebook-id.cmd title.cmd]
+      %join                 [%join notebook-id.cmd]
+      %leave                [%leave notebook-id.cmd]
+      %create-folder        [%create-folder notebook-id.cmd parent-folder-id.cmd name.cmd]
+      %rename-folder        [%rename-folder notebook-id.cmd folder-id.cmd name.cmd]
+      %move-folder          [%move-folder notebook-id.cmd folder-id.cmd new-parent-folder-id.cmd]
+      %delete-folder        [%delete-folder notebook-id.cmd folder-id.cmd recursive.cmd]
+      %create-note          [%create-note notebook-id.cmd folder-id.cmd title.cmd body-md.cmd]
+      %rename-note          [%rename-note notebook-id.cmd note-id.cmd title.cmd]
+      %move-note            [%move-note note-id.cmd notebook-id.cmd folder-id.cmd]
+      %delete-note          [%delete-note note-id.cmd notebook-id.cmd]
+      %update-note          [%update-note note-id.cmd body-md.cmd expected-revision.cmd]
+      %batch-import         [%batch-import notebook-id.cmd folder-id.cmd notes.cmd]
+      %batch-import-tree    [%batch-import-tree notebook-id.cmd parent-folder-id.cmd tree.cmd]
+  ==
 ::  role-for: get role of ship in notebook, ~ if not member
 ++  role-for
   |=  [notebook-id=@ud who=ship]
@@ -560,12 +633,46 @@
   ?~  nb  st
   st(notebooks (~(put by notebooks.st) notebook-id u.nb(updated-at now.bowl)))
 ::
-::  event-cards: create cards to send event to subscribers
-++  event-cards
+::  event-notebook-id: extract notebook id from domain event
+++  event-notebook-id
   |=  evt=event:notes
-  ^-  (list card)
-  :~  [%give %fact ~[/events] %notes-event !>(evt)]
+  ^-  @ud
+  ?-  -.evt
+      %notebook-created    notebook-id.evt
+      %notebook-renamed    notebook-id.evt
+      %member-joined       notebook-id.evt
+      %member-left         notebook-id.evt
+      %folder-created      notebook-id.evt
+      %folder-renamed      notebook-id.evt
+      %folder-moved        notebook-id.evt
+      %folder-deleted      notebook-id.evt
+      %note-created        notebook-id.evt
+      %note-renamed        notebook-id.evt
+      %note-moved          notebook-id.evt
+      %note-deleted        notebook-id.evt
+      %note-updated        notebook-id.evt
   ==
+::
+::  event-cards: cards for update broadcast at seq
+++  event-cards
+  |=  [seq=@ud evt=u-notes:notes]
+  ^-  (list card)
+  =/  notebook-id=@ud  (event-notebook-id evt)
+  :~  [%give %fact ~[/v0/events/[notebook-id]] %notes-update !>(evt)]
+      [%give %fact ~[/v0/stream/[notebook-id]] %notes-response !>([%update seq evt]:r-notes)]
+  ==
+::
+++  commit-update
+  |=  [st=raw-state evt=u-notes:notes]
+  ^-  (quip card _this)
+  =/  seq=@ud  +(next-update-id.st)
+  =/  st2=raw-state
+    %_  st
+      updates          (~(put by updates.st) seq evt)
+      next-update-id   seq
+    ==
+  :_  this(state st2)
+  (event-cards seq evt)
 ::
 ::  all-folders-in-notebook: list all folders for a notebook
 ++  all-folders-in-notebook
@@ -648,4 +755,13 @@
   %-  ~(rep in nids)
   |=  [nid=@ud acc=_nmap]
   (~(del by acc) nid)
+::
+++  updates-since
+  |=  [notebook-id=@ud since=@ud]
+  ^-  (list [seq=@ud evt=u-notes:notes])
+  %+  murn  ~(tap by updates.state)
+  |=  [seq=@ud evt=u-notes:notes]
+  ?:  &((gth seq since) =(notebook-id (event-notebook-id evt)))
+    `[seq evt]
+  ~
 --

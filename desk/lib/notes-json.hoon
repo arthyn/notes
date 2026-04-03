@@ -68,24 +68,16 @@
           ['notebookId' (numb notebook-id.evt)]
           ['actor' s+(scot %p actor.evt)]
       ==
-        %member-invited
-      :~  ['type' s+'member-invited']
-          ['notebookId' (numb notebook-id.evt)]
-          ['who' s+(scot %p who.evt)]
-          ['role' s+(scot %tas role.evt)]
-          ['actor' s+(scot %p actor.evt)]
-      ==
-        %member-removed
-      :~  ['type' s+'member-removed']
+        %member-joined
+      :~  ['type' s+'member-joined']
           ['notebookId' (numb notebook-id.evt)]
           ['who' s+(scot %p who.evt)]
           ['actor' s+(scot %p actor.evt)]
       ==
-        %role-changed
-      :~  ['type' s+'role-changed']
+        %member-left
+      :~  ['type' s+'member-left']
           ['notebookId' (numb notebook-id.evt)]
           ['who' s+(scot %p who.evt)]
-          ['role' s+(scot %tas role.evt)]
           ['actor' s+(scot %p actor.evt)]
       ==
         %folder-created
@@ -180,17 +172,13 @@
       :-  %rename-notebook
       ((ot ~[['notebookId' ni] ['title' so]]) val)
     ::
-        %'invite-member'
-      :-  %invite-member
-      ((ot ~[['notebookId' ni] ['who' (se %p)] ['role' role]]) val)
+        %'join'
+      :-  %join
+      ((ot ~[['notebookId' ni]]) val)
     ::
-        %'remove-member'
-      :-  %remove-member
-      ((ot ~[['notebookId' ni] ['who' (se %p)]]) val)
-    ::
-        %'set-role'
-      :-  %set-role
-      ((ot ~[['notebookId' ni] ['who' (se %p)] ['role' role]]) val)
+        %'leave'
+      :-  %leave
+      ((ot ~[['notebookId' ni]]) val)
     ::
         %'create-folder'
       :-  %create-folder

@@ -70,22 +70,26 @@ Mark: `notes-action` (JSON)
 
 ### SSE Events
 
-Subscribe to `/notes/events` for real-time updates:
+Subscribe to `/notes/v0/events/{notebookId}` for real-time updates:
 - `notebook-created`, `notebook-renamed`
 - `folder-created`, `folder-renamed`, `folder-moved`, `folder-deleted`
 - `note-created`, `note-updated`, `note-renamed`, `note-moved`, `note-deleted`
-- `member-invited`, `member-removed`, `role-changed`
+- `member-joined`, `member-left`
+
+Replay updates from `/notes/v0/updates/{notebookId}/{sinceSeq}`.
 
 ## Desk Structure
 
 ```
 app/notes.hoon           — Gall agent (eyre binding, HTTP handler, SSE)
 app/notes-ui/index.html  — source HTML for the UI
-sur/notes.hoon           — types (notebook, folder, note, action, event, state)
+sur/notes.hoon           — types (notebook, folder, note, a/c/u/r, state)
 lib/notes-json.hoon      — JSON encoding/decoding
 lib/notes-ui.hoon        — HTML as hex literal (Ford import workaround for kelvin 409)
-mar/notes/action.hoon    — action mark (noun + JSON grab)
-mar/notes/event.hoon     — event mark (noun grab, JSON grow)
+mar/notes-action.hoon    — local action mark
+mar/notes-command.hoon   — server command mark
+mar/notes-update.hoon    — canonical update mark
+mar/notes-response.hoon  — client response mark
 mar/json.hoon            — JSON mark with mime grow arm
 mar/html.hoon            — HTML mark
 desk.bill                — agent manifest
