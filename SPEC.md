@@ -326,6 +326,28 @@ scribe/
 
 ---
 
+## v1.1 (Planned)
+
+- **Per-folder permissions (ACL layering)**
+  - Keep notebook-wide membership as baseline.
+  - Add optional folder-level overrides for read/write.
+  - Preserve simple defaults so teams can ignore this until needed.
+
+- **Join flow refinements**
+  - Optional invite/join-request UX on top of v0 `join`/`leave` primitives.
+
+- **Sync ergonomics**
+  - First-class `since-seq` recovery in clients (better reconnect and stale-state UX).
+  - Snapshot+tail fallback for large gaps.
+
+- **Export/import fidelity upgrades**
+  - Optional manifest round-trip mode with stable IDs + revisions.
+
+- **Editor polish pass**
+  - Better conflict merge UX and keyboard-driven navigation improvements.
+
+---
+
 ## Open Questions
 
 1. Should notebook membership be invite-only, or can links grant join requests?
