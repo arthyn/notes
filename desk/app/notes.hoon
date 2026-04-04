@@ -170,9 +170,7 @@
 --
 ::  helper core
 |_  [=bowl:gall cards=(list card)]
-+*  this     +<
-    no-core  this
-    se-core  .
++*  this  +<
 ++  cor   .
 ++  abet
   ^-  [(list card) raw-state]
@@ -181,37 +179,21 @@
 ++  emil  |=(caz=(list card) cor(cards (welp (flop caz) cards)))
 ++  no-core
   |_  no-act=a-notes:notes
-  ++  no-core  .
-  ++  no-abed
-    |=  no-act=a-notes:notes
-    ^+  no-core
-    no-core(no-act no-act)
-  ++  no-abet
-    |=  c=_cor
+  ++  run
     ^+  cor
-    c
-  ++  emit  emit:cor
-  ++  emil  emil:cor
-  ++  no-poke
-    ^+  cor
-    (no-poke:cor no-act)
+    =/  cmd=c-notes:notes
+      (action-to-command no-act src.bowl)
+    =/  act=a-notes:notes
+      (command-to-action cmd)
+    (no-poke:cor act)
   --
 ++  se-core
-  |_  [se-act=a-notes:notes]
-  ++  se-core  .
-  ++  se-abed
-    |=  se-act=a-notes:notes
-    ^+  se-core
-    se-core(se-act se-act)
-  ++  se-abet
-    |=  c=_cor
+  |_  se-cmd=c-notes:notes
+  ++  run
     ^+  cor
-    c
-  ++  emit  emit:cor
-  ++  emil  emil:cor
-  ++  se-poke
-    ^+  cor
-    (no-poke:cor se-act)
+    =/  act=a-notes:notes
+      (command-to-action se-cmd)
+    (run:no-core act)
   --
 ++  poke
   |=  [=mark =vase]
@@ -233,18 +215,12 @@
       %notes-command
     =/  cmd=c-notes:notes
       !<(c-notes:notes vase)
-    =/  act=a-notes:notes
-      (command-to-action cmd)
-    $(mark %notes-action, vase !>(act))
+    (run:se-core cmd)
   ::
       %notes-action
     =/  no-act=a-notes:notes
       !<(a-notes:notes vase)
-    =/  cmd=c-notes:notes
-      (action-to-command no-act src.bowl)
-    =/  act=a-notes:notes
-      (command-to-action cmd)
-    (no-poke act)
+    (run:no-core no-act)
   ==
 ::
 ++  no-poke
