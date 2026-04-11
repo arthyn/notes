@@ -353,7 +353,8 @@ let notebooks = {};   // id -> notebook
 let folders = {};     // id -> folder
 let notes = {};       // id -> note
 
-let activeNotebookId = null;
+let activeNotebookId = null;   // numeric id
+let activeNotebookFlag = null; // "~ship/name" for scry paths
 let activeFolderId = null;
 let activeNoteId = null;
 let dirty = false;
@@ -492,32 +493,36 @@ async function loadNotebooks() {
 }
 
 async function loadFolders(notebookId) {
-  const data = await scry(`/folders/${notebookId}`);
+  if (!activeNotebookFlag) return;
+  const data = await scry(`/folders/${activeNotebookFlag}`);
   folders = {};
   (data || []).forEach(f => folders[f.id] = f);
   renderFolderTree();
 }
 
 async function loadNotes(notebookId, folderId) {
-  let data;
-  if (folderId) {
-    data = await scry(`/notes/${notebookId}/${folderId}`);
-  } else {
-    data = await scry(`/notes/${notebookId}`);
-  }
+  if (!activeNotebookFlag) return;
+  const data = await scry(`/notes/${activeNotebookFlag}`);
   notes = {};
-  (data || []).forEach(n => notes[n.id] = n);
+  (data || []).forEach(n => {
+    // filter by folder client-side if specified
+    if (!folderId || n.folderId === folderId) notes[n.id] = n;
+  });
   renderNotesList();
 }
 
 async function loadNote(noteId) {
-  const data = await scry(`/note/${noteId}`);
+  // reload all notes to get fresh data, then update editor if needed
+  if (!activeNotebookFlag) return;
+  const data = await scry(`/notes/${activeNotebookFlag}`);
   if (!data) return;
-  notes[data.id] = data;
-  if (activeNoteId === data.id) {
-    document.getElementById("note-title-input").value = data.title;
-    document.getElementById("editor").value = data.bodyMd;
-    savedRevision = data.revision;
+  (data || []).forEach(n => notes[n.id] = n);
+  const n = notes[noteId];
+  if (!n) return;
+  if (activeNoteId === n.id) {
+    document.getElementById("note-title-input").value = n.title;
+    document.getElementById("editor").value = n.bodyMd;
+    savedRevision = n.revision;
     clearDirty();
   }
 }
@@ -851,6 +856,8 @@ function renderNotesList() {
 async function selectNotebook(id) {
   if (!await confirmDirty()) return;
   activeNotebookId = id;
+  const nb = notebooks[id];
+  activeNotebookFlag = nb ? `${SHIP}/${id}` : null;
   activeFolderId = null;
   activeNoteId = null;
   clearEditor();
@@ -927,7 +934,7 @@ async function saveNote() {
       await pokeAction({ "rename-note": { notebookId: n.notebookId, noteId: activeNoteId, title } });
     }
     // Update body
-    await pokeAction({ "update-note": { noteId: activeNoteId, bodyMd: body, expectedRevision: savedRevision } });
+    await pokeAction({ "update-note": { notebookId: n.notebookId, noteId: activeNoteId, bodyMd: body, expectedRevision: savedRevision } });
     savedRevision++;
     notes[activeNoteId] = { ...n, title, bodyMd: body, revision: savedRevision };
     clearDirty();

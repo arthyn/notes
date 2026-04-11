@@ -227,6 +227,16 @@
       :-  %batch-import-tree
       %.  val
       (ot ~[['notebookId' ni] ['parentFolderId' ni] ['tree' (ar import-node)]])
+    ::
+        %'join-remote'
+      :-  %join-remote
+      =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) val)
+      [-.raw +.raw]
+    ::
+        %'leave-remote'
+      :-  %leave-remote
+      =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) val)
+      [-.raw +.raw]
     ==
   ::
   ++  import-node

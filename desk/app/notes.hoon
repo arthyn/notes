@@ -128,6 +128,11 @@
     ::  for %create-notebook we always act as local host
     ?:  ?=(%create-notebook -.act)
       se-abet:(se-create-notebook:(se-init:se-core act) act)
+    ::  remote join/leave actions: flag is carried directly in the action
+    ?:  ?=(%join-remote -.act)
+      (join-remote flag.act)
+    ?:  ?=(%leave-remote -.act)
+      (leave-remote flag.act)
     ::  for other actions, look up the notebook by id and route
     =/  nid=@ud  (action-notebook-id act)
     =/  =flag:notes  [our.bowl (scot %ud nid)]
@@ -147,12 +152,53 @@
   ::
       %notes-command
     =/  cmd=command:notes  !<(command:notes vase)
+    ::  %join-remote and %leave-remote carry their own flag
+    ?:  ?=(%join-remote -.cmd)
+      ?>  =(ship.flag.cmd our.bowl)
+      ?>  (~(has by books.state) flag.cmd)
+      se-abet:(se-poke:(se-abed:se-core flag.cmd) cmd)
+    ?:  ?=(%leave-remote -.cmd)
+      ?>  =(ship.flag.cmd our.bowl)
+      ?>  (~(has by books.state) flag.cmd)
+      se-abet:(se-poke:(se-abed:se-core flag.cmd) cmd)
     ::  commands always processed by server core
     =/  nid=@ud  (command-notebook-id cmd)
     =/  =flag:notes  [our.bowl (scot %ud nid)]
     ?>  (~(has by books.state) flag)
     se-abet:(se-poke:(se-abed:se-core flag) cmd)
   ==
+::
+::  +join-remote: initiate joining a notebook on a remote ship
+++  join-remote
+  |=  =flag:notes
+  ^+  cor
+  ::  must be a remote ship, not ourselves
+  ?<  =(our.bowl ship.flag)
+  ::  must not already be tracking this notebook
+  ?<  (~(has by books.state) flag)
+  ::  create placeholder entry with %sub net, not yet initialized
+  =/  placeholder-net=net:notes  [%sub *@da |]
+  =/  placeholder-nb=notebook:notes
+    [0 '' ship.flag *@da *@da]
+  =/  placeholder-nb-state=notebook-state:notes
+    [placeholder-nb ~ ~ ~]
+  =.  books.state
+    (~(put by books.state) flag [placeholder-net placeholder-nb-state])
+  ::  poke the host ship to add us as a member
+  =/  join-cmd=command:notes
+    [%join-remote flag src.bowl]
+  =/  join-wire=path
+    /notes/join/(scot %p ship.flag)/[name.flag]
+  %-  emit
+  [%pass join-wire %agent [ship.flag %notes] %poke notes-command+!>(join-cmd)]
+::
+::  +leave-remote: leave a notebook on a remote ship
+++  leave-remote
+  |=  =flag:notes
+  ^+  cor
+  ::  must exist in books
+  ?>  (~(has by books.state) flag)
+  no-abet:no-leave:(no-abed:no-core flag)
 ::
 ++  watch
   |=  =(pole knot)
@@ -262,6 +308,19 @@
     ?.  (~(has by books.state) flag)
       cor
     no-abet:(no-agent:(no-abed:no-core flag) sign)
+  ::
+      [%notes %join ship=@ name=@ ~]
+    =/  =flag:notes
+      [(slav %p ship.pole) name.pole]
+    ?+  -.sign  cor
+        %poke-ack
+      ?~  p.sign
+        ::  poke succeeded — host has added us as member, now subscribe
+        no-abet:no-start-watch:(no-abed:no-core flag)
+      ::  poke failed — remove placeholder from books
+      =.  books.state  (~(del by books.state) flag)
+      cor
+    ==
   ==
 ::
 ++  arvo
@@ -292,6 +351,8 @@
       %rename-notebook      notebook-id.act
       %join                 notebook-id.act
       %leave                notebook-id.act
+      %join-remote          0
+      %leave-remote         0
       %create-folder        notebook-id.act
       %rename-folder        notebook-id.act
       %move-folder          notebook-id.act
@@ -314,6 +375,8 @@
       %rename-notebook      notebook-id.cmd
       %join                 notebook-id.cmd
       %leave                notebook-id.cmd
+      %join-remote          0
+      %leave-remote         0
       %create-folder        notebook-id.cmd
       %rename-folder        notebook-id.cmd
       %move-folder          notebook-id.cmd
@@ -336,6 +399,8 @@
       %rename-notebook      [%rename-notebook notebook-id.act title.act actor]
       %join                 [%join notebook-id.act actor]
       %leave                [%leave notebook-id.act actor]
+      %join-remote          [%join-remote flag.act actor]
+      %leave-remote         [%leave-remote flag.act actor]
       %create-folder        [%create-folder notebook-id.act parent-folder-id.act name.act actor]
       %rename-folder        [%rename-folder notebook-id.act folder-id.act name.act actor]
       %move-folder          [%move-folder notebook-id.act folder-id.act new-parent-folder-id.act actor]
@@ -481,6 +546,8 @@
         %rename-notebook      (se-rename-notebook cmd)
         %join                 (se-join cmd)
         %leave                (se-leave cmd)
+        %join-remote          (se-join-remote cmd)
+        %leave-remote         (se-leave-remote cmd)
         %create-folder        (se-create-folder cmd)
         %rename-folder        (se-rename-folder cmd)
         %move-folder          (se-move-folder cmd)
@@ -521,6 +588,28 @@
       (~(del by notebook-members.notebook-state) actor.cmd)
     =.  notebook-members.notebook-state  new-mbrs
     (se-update [%member-left notebook-id.cmd actor.cmd actor.cmd])
+  ::
+  ::  +se-join-remote: add a remote ship as an editor (called from poke on host)
+  ++  se-join-remote
+    |=  cmd=command:notes
+    ?>  ?=(%join-remote -.cmd)
+    ^+  se-core
+    =/  nid=@ud  id.notebook.notebook-state
+    =/  new-mbrs=notebook-members:notes
+      (~(put by notebook-members.notebook-state) actor.cmd %editor)
+    =.  notebook-members.notebook-state  new-mbrs
+    (se-update [%member-joined nid actor.cmd %editor actor.cmd])
+  ::
+  ::  +se-leave-remote: remove a remote ship from membership (called from poke on host)
+  ++  se-leave-remote
+    |=  cmd=command:notes
+    ?>  ?=(%leave-remote -.cmd)
+    ^+  se-core
+    =/  nid=@ud  id.notebook.notebook-state
+    =/  new-mbrs=notebook-members:notes
+      (~(del by notebook-members.notebook-state) actor.cmd)
+    =.  notebook-members.notebook-state  new-mbrs
+    (se-update [%member-left nid actor.cmd actor.cmd])
   ::
   ++  se-create-folder
     |=  cmd=command:notes
@@ -889,6 +978,19 @@
         %poke
         notes-command+!>(cmd)
     ==
+  ::
+  ::  +no-start-watch: begin subscription to host's update stream
+  ++  no-start-watch
+    ^+  no-core
+    %-  emit
+    [%pass no-sub-wire %agent [ship.flag %notes] %watch no-sub-path]
+  ::
+  ::  +no-leave: unsubscribe from host and mark entry for deletion
+  ++  no-leave
+    ^+  no-core
+    =.  gone  &
+    %-  emit
+    [%pass no-sub-wire %agent [ship.flag %notes] %leave ~]
   ::
   ::  +no-agent: handle sign from host subscription
   ++  no-agent
