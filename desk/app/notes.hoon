@@ -77,7 +77,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'no-flash-v1'
+++  dummy  'v0-paths-v1'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -240,8 +240,8 @@
     ::  /x/ui — serve the frontend
       [%x %ui ~]
     ``html+!>(index)
-    ::  /x/notebooks — list all notebooks
-      [%x %notebooks ~]
+    ::  /x/v0/notebooks — list all notebooks
+      [%x %v0 %notebooks ~]
     =/  nbs=(list json)
       %+  murn  ~(tap by books.state)
       |=  [=flag:notes [=net:notes =notebook-state:notes]]
@@ -252,8 +252,8 @@
           ['notebook' (notebook:enjs:notes-json notebook.notebook-state)]
       ==
     ``json+!>([%a nbs])
-    ::  /x/notebook/<ship>/<name>
-      [%x %notebook ship=@ name=@ ~]
+    ::  /x/v0/notebook/<ship>/<name>
+      [%x %v0 %notebook ship=@ name=@ ~]
     =/  =flag:notes  [(slav %p ship.pole) name.pole]
     =/  entry=(unit [=net:notes =notebook-state:notes])
       (~(get by books.state) flag)
@@ -264,8 +264,8 @@
         ['flagName' s+name.flag]
         ['notebook' (notebook:enjs:notes-json notebook.notebook-state.u.entry)]
     ==
-    ::  /x/folders/<ship>/<name>
-      [%x %folders ship=@ name=@ ~]
+    ::  /x/v0/folders/<ship>/<name>
+      [%x %v0 %folders ship=@ name=@ ~]
     =/  =flag:notes  [(slav %p ship.pole) name.pole]
     =/  entry=(unit [=net:notes =notebook-state:notes])
       (~(get by books.state) flag)
@@ -275,8 +275,8 @@
       %+  turn  ~(val by folders.notebook-state.u.entry)
       folder:enjs:notes-json
     ``json+!>([%a flds])
-    ::  /x/notes/<ship>/<name>
-      [%x %notes ship=@ name=@ ~]
+    ::  /x/v0/notes/<ship>/<name>
+      [%x %v0 %notes ship=@ name=@ ~]
     =/  =flag:notes  [(slav %p ship.pole) name.pole]
     =/  entry=(unit [=net:notes =notebook-state:notes])
       (~(get by books.state) flag)
@@ -286,8 +286,8 @@
       %+  turn  ~(val by notes.notebook-state.u.entry)
       note:enjs:notes-json
     ``json+!>([%a nts])
-    ::  /x/members/<ship>/<name>
-      [%x %members ship=@ name=@ ~]
+    ::  /x/v0/members/<ship>/<name>
+      [%x %v0 %members ship=@ name=@ ~]
     =/  =flag:notes  [(slav %p ship.pole) name.pole]
     =/  entry=(unit [=net:notes =notebook-state:notes])
       (~(get by books.state) flag)

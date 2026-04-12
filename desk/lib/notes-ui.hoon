@@ -485,7 +485,7 @@ async function connect() {
 
   // Get ship name
   try {
-    const r = await fetch(`${BASE_URL}/~/scry/notes/notebooks.json`, { credentials: "include" });
+    const r = await fetch(`${BASE_URL}/~/scry/notes/v0/notebooks.json`, { credentials: "include" });
     if (r.status === 403) { fail("Auth failed — check your +code"); return; }
     if (!r.ok && r.status !== 404) { fail(`Cannot reach ship: ${r.status}`); return; }
   } catch(e) { fail(`Cannot reach ship: ${e.message}`); return; }
@@ -617,7 +617,7 @@ function handleEvent(msg) {
 
 // ── Load Data ─────────────────────────────────────────────────────────────
 async function loadNotebooks() {
-  const data = await scry("/notebooks");
+  const data = await scry("/v0/notebooks");
   if (!data) return;
   notebooks = {};
   (data || []).forEach(entry => {
@@ -632,7 +632,7 @@ async function loadNotebooks() {
 
 async function loadFolders(notebookId) {
   if (!activeNotebookFlag) return;
-  const data = await scry(`/folders/${activeNotebookFlag}`);
+  const data = await scry(`/v0/folders/${activeNotebookFlag}`);
   folders = {};
   (data || []).forEach(f => folders[f.id] = f);
   renderFolderTree();
@@ -640,7 +640,7 @@ async function loadFolders(notebookId) {
 
 async function loadNotes(notebookId, folderId) {
   if (!activeNotebookFlag) return;
-  const data = await scry(`/notes/${activeNotebookFlag}`);
+  const data = await scry(`/v0/notes/${activeNotebookFlag}`);
   notes = {};
   (data || []).forEach(n => {
     // filter by folder client-side if specified
@@ -652,7 +652,7 @@ async function loadNotes(notebookId, folderId) {
 async function loadNote(noteId) {
   // reload all notes to get fresh data, then update editor if needed
   if (!activeNotebookFlag) return;
-  const data = await scry(`/notes/${activeNotebookFlag}`);
+  const data = await scry(`/v0/notes/${activeNotebookFlag}`);
   if (!data) return;
   (data || []).forEach(n => notes[n.id] = n);
   const n = notes[noteId];
