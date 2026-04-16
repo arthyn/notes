@@ -49,10 +49,14 @@ pub struct Note {
 
 /// SSE response envelope from /stream subscription
 #[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "response")]
+#[serde(tag = "response", rename_all = "camelCase")]
 pub enum Response {
     #[serde(rename = "snapshot")]
-    Snapshot { host: String, flag_name: String },
+    Snapshot {
+        host: String,
+        #[serde(rename = "flagName")]
+        flag_name: String,
+    },
     #[serde(rename = "update")]
     Update { update: Event },
 }
@@ -61,85 +65,85 @@ pub enum Response {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type")]
 pub enum Event {
-    #[serde(rename = "notebook-created")]
+    #[serde(rename = "notebook-created", rename_all = "camelCase")]
     NotebookCreated {
         notebook_id: u64,
         notebook: Notebook,
         actor: String,
     },
-    #[serde(rename = "notebook-renamed")]
+    #[serde(rename = "notebook-renamed", rename_all = "camelCase")]
     NotebookRenamed {
         notebook_id: u64,
         title: String,
         actor: String,
     },
-    #[serde(rename = "member-joined")]
+    #[serde(rename = "member-joined", rename_all = "camelCase")]
     MemberJoined {
         notebook_id: u64,
         who: String,
         actor: String,
     },
-    #[serde(rename = "member-left")]
+    #[serde(rename = "member-left", rename_all = "camelCase")]
     MemberLeft {
         notebook_id: u64,
         who: String,
         actor: String,
     },
-    #[serde(rename = "folder-created")]
+    #[serde(rename = "folder-created", rename_all = "camelCase")]
     FolderCreated {
         folder_id: u64,
         notebook_id: u64,
         folder: Folder,
         actor: String,
     },
-    #[serde(rename = "folder-renamed")]
+    #[serde(rename = "folder-renamed", rename_all = "camelCase")]
     FolderRenamed {
         folder_id: u64,
         notebook_id: u64,
         name: String,
         actor: String,
     },
-    #[serde(rename = "folder-moved")]
+    #[serde(rename = "folder-moved", rename_all = "camelCase")]
     FolderMoved {
         folder_id: u64,
         notebook_id: u64,
         new_parent_folder_id: u64,
         actor: String,
     },
-    #[serde(rename = "folder-deleted")]
+    #[serde(rename = "folder-deleted", rename_all = "camelCase")]
     FolderDeleted {
         folder_id: u64,
         notebook_id: u64,
         actor: String,
     },
-    #[serde(rename = "note-created")]
+    #[serde(rename = "note-created", rename_all = "camelCase")]
     NoteCreated {
         note_id: u64,
         notebook_id: u64,
         note: Note,
         actor: String,
     },
-    #[serde(rename = "note-renamed")]
+    #[serde(rename = "note-renamed", rename_all = "camelCase")]
     NoteRenamed {
         note_id: u64,
         notebook_id: u64,
         title: String,
         actor: String,
     },
-    #[serde(rename = "note-moved")]
+    #[serde(rename = "note-moved", rename_all = "camelCase")]
     NoteMoved {
         note_id: u64,
         notebook_id: u64,
         folder_id: u64,
         actor: String,
     },
-    #[serde(rename = "note-deleted")]
+    #[serde(rename = "note-deleted", rename_all = "camelCase")]
     NoteDeleted {
         note_id: u64,
         notebook_id: u64,
         actor: String,
     },
-    #[serde(rename = "note-updated")]
+    #[serde(rename = "note-updated", rename_all = "camelCase")]
     NoteUpdated {
         note_id: u64,
         notebook_id: u64,

@@ -194,24 +194,34 @@ impl SyncEngine {
             });
 
             if let Some(entry) = nb_entry {
-                // Skip if already synced recently
-                {
+                let already_synced = {
                     let state = self.state.read().await;
-                    if state.notebooks.contains_key(flag) {
-                        info!("Notebook {} already synced, skipping initial sync", flag);
-                        continue;
-                    }
-                }
+                    state.notebooks.contains_key(flag)
+                };
 
-                let mut state = self.state.write().await;
-                ship_to_local::initial_sync(
-                    client,
-                    flag,
-                    &entry.notebook.title,
-                    &sync_root,
-                    &mut state,
-                )
-                .await?;
+                if !already_synced {
+                    // First time — full initial sync
+                    let mut state = self.state.write().await;
+                    ship_to_local::initial_sync(
+                        client,
+                        flag,
+                        &entry.notebook.title,
+                        &sync_root,
+                        &mut state,
+                    )
+                    .await?;
+                } else {
+                    // Already synced — reconcile diffs
+                    info!("Reconciling diffs for notebook {}", flag);
+                    let mut state = self.state.write().await;
+                    ship_to_local::reconcile(
+                        client,
+                        flag,
+                        &sync_root,
+                        &mut state,
+                    )
+                    .await?;
+                }
             } else {
                 warn!("Notebook {} not found on ship, skipping", flag);
             }

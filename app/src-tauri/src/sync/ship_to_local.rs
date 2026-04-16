@@ -148,6 +148,187 @@ pub async fn initial_sync(
     Ok(())
 }
 
+/// Reconcile diffs between ship state and local filesystem on startup.
+/// Handles: new notes on ship, deleted notes on ship, content changes both ways.
+pub async fn reconcile(
+    client: &UrbitClient,
+    flag: &str,
+    sync_root: &Path,
+    state: &mut SyncState,
+) -> Result<(), SyncError> {
+    let nb = match state.notebooks.get(flag) {
+        Some(nb) => nb,
+        None => return Ok(()),
+    };
+    let notebook_dir = nb.local_dir.clone();
+    let notebook_id = nb.notebook_id;
+
+    // Scry current state from ship
+    let ship_folders_vec = client.get_folders(flag).await?;
+    let ship_notes_vec = client.get_notes(flag).await?;
+
+    let ship_folders = path_mapper::folder_map(ship_folders_vec);
+    let ship_notes: HashMap<u64, crate::urbit::types::Note> =
+        ship_notes_vec.into_iter().map(|n| (n.id, n)).collect();
+
+    info!(
+        "Reconcile {}: {} ship notes, {} local notes",
+        flag,
+        ship_notes.len(),
+        nb.notes.len()
+    );
+
+    let mut changes = 0;
+
+    // Collect local note IDs and paths before mutating state
+    let local_note_ids: Vec<u64> = nb.notes.keys().cloned().collect();
+    let local_notes_snapshot: HashMap<u64, (String, String)> = nb
+        .notes
+        .iter()
+        .map(|(nid, ns)| (*nid, (ns.content_hash.clone(), ns.local_path.clone())))
+        .collect();
+
+    // Drop the immutable borrow of nb so we can mutate state below
+    drop(nb);
+
+    // 1. Notes on ship but not in local state → write to disk
+    for (nid, ship_note) in &ship_notes {
+        if !local_notes_snapshot.contains_key(nid) {
+            let rel_path = path_mapper::note_path(&notebook_dir, ship_note, &ship_folders);
+            let abs_path = sync_root.join(&rel_path);
+            if let Some(parent) = abs_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&abs_path, &ship_note.body_md)?;
+
+            let rel_str = rel_path.to_string_lossy().to_string();
+            let hash = content_hash(&ship_note.body_md);
+
+            if let Some(nb) = state.notebooks.get_mut(flag) {
+                nb.notes.insert(
+                    *nid,
+                    NoteSync {
+                        note_id: *nid,
+                        title: ship_note.title.clone(),
+                        folder_id: ship_note.folder_id,
+                        revision: ship_note.revision,
+                        content_hash: hash,
+                        local_path: rel_str,
+                        last_synced_at: now(),
+                    },
+                );
+            }
+            info!("Reconcile: new ship note → local: {}", ship_note.title);
+            changes += 1;
+        }
+    }
+
+    // 2. Notes in local state but no longer on ship → delete local file
+    for nid in &local_note_ids {
+        if !ship_notes.contains_key(nid) {
+            if let Some(nb) = state.notebooks.get_mut(flag) {
+                if let Some(ns) = nb.notes.remove(nid) {
+                    let abs_path = sync_root.join(&ns.local_path);
+                    if abs_path.exists() {
+                        std::fs::remove_file(&abs_path)?;
+                        info!("Reconcile: note deleted on ship → removed local: {}", ns.title);
+                        changes += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Notes that exist both places → check for content changes
+    let mut updates: Vec<(u64, String)> = Vec::new();
+
+    for (nid, (stored_hash, local_path)) in &local_notes_snapshot {
+        if let Some(ship_note) = ship_notes.get(nid) {
+            let ship_hash = content_hash(&ship_note.body_md);
+            let abs_path = sync_root.join(local_path);
+
+            if abs_path.exists() {
+                let local_content = std::fs::read_to_string(&abs_path)?;
+                let local_hash = content_hash(&local_content);
+
+                if local_hash != *stored_hash && ship_hash == *stored_hash {
+                    // Local changed, ship unchanged → will be pushed by FS watcher
+                    info!("Reconcile: local change detected for {}", ship_note.title);
+                } else if ship_hash != *stored_hash && local_hash == *stored_hash {
+                    // Ship changed, local unchanged → pull from ship
+                    std::fs::write(&abs_path, &ship_note.body_md)?;
+                    updates.push((*nid, ship_hash));
+                    info!("Reconcile: ship change → updated local: {}", ship_note.title);
+                    changes += 1;
+                } else if ship_hash != *stored_hash && local_hash != *stored_hash {
+                    if ship_hash == local_hash {
+                        // Both changed to same content
+                        updates.push((*nid, ship_hash));
+                    } else {
+                        // Conflict
+                        let conflict = conflict_path(&abs_path);
+                        std::fs::write(&conflict, &local_content)?;
+                        std::fs::write(&abs_path, &ship_note.body_md)?;
+                        updates.push((*nid, ship_hash));
+                        warn!("Reconcile: conflict for {} — local saved as .conflict.md", ship_note.title);
+                        changes += 1;
+                    }
+                }
+            } else {
+                // Local file missing — rewrite from ship
+                if let Some(parent) = abs_path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&abs_path, &ship_note.body_md)?;
+                updates.push((*nid, ship_hash));
+                info!("Reconcile: restored missing local file: {}", ship_note.title);
+                changes += 1;
+            }
+        }
+    }
+
+    // Apply hash/revision updates
+    if let Some(nb) = state.notebooks.get_mut(flag) {
+        for (nid, new_hash) in &updates {
+            if let Some(ns) = nb.notes.get_mut(nid) {
+                ns.content_hash = new_hash.clone();
+                if let Some(ship_note) = ship_notes.get(nid) {
+                    ns.revision = ship_note.revision;
+                }
+                ns.last_synced_at = now();
+            }
+        }
+
+        // Update folder state too
+        nb.folders.clear();
+        for (fid, folder) in &ship_folders {
+            let rel_path = path_mapper::folder_path(*fid, &ship_folders);
+            let rel_str = rel_path.to_string_lossy().to_string();
+
+            if !rel_str.is_empty() {
+                let abs_path = sync_root.join(&notebook_dir).join(&rel_path);
+                let _ = std::fs::create_dir_all(&abs_path);
+            }
+
+            nb.folders.insert(
+                *fid,
+                FolderSync {
+                    folder_id: *fid,
+                    name: folder.name.clone(),
+                    parent_folder_id: folder.parent_folder_id,
+                    local_path: rel_str,
+                },
+            );
+        }
+    }
+
+    state.touch();
+    state.save(sync_root)?;
+
+    info!("Reconcile complete for {}: {} changes", flag, changes);
+    Ok(())
+}
+
 /// Apply a live SSE event to the local filesystem.
 /// Returns the set of paths that were written (for suppression).
 pub fn apply_event(

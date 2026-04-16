@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use notify::event::ModifyKind;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::sync::local_to_ship::FsChange;
 
@@ -36,6 +36,10 @@ impl FsWatcher {
         let mut watcher =
             notify::recommended_watcher(move |res: Result<Event, notify::Error>| match res {
                 Ok(event) => {
+                    // Log raw events at info level until stable
+                    for p in &event.paths {
+                        tracing::info!("FS raw: {:?} {}", event.kind, p.display());
+                    }
                     if let Some(change) = process_event(&event, &suppressed) {
                         if let Err(e) = tx.blocking_send(change) {
                             error!("Failed to send FS change: {}", e);
@@ -137,13 +141,13 @@ fn process_event(
                 None
             }
         }
-        // Modify events (content change or rename)
+        // Modify events — rename/move/delete on macOS
         EventKind::Modify(ModifyKind::Name(_)) => {
-            // Rename: notify gives us both paths
             if paths.len() >= 2 {
+                // Both paths available (rare on macOS FSEvents)
                 let from = &paths[0];
                 let to = &paths[1];
-                debug!("FS: rename {} -> {}", from.display(), to.display());
+                info!("FS: rename {} -> {}", from.display(), to.display());
                 if to.is_dir() || from.is_dir() {
                     Some(FsChange::DirRenamed {
                         from: from.clone(),
@@ -156,7 +160,35 @@ fn process_event(
                     })
                 }
             } else {
-                None
+                // Single path — macOS FSEvents style. Check if the path
+                // still exists to distinguish "moved away/deleted" from
+                // "moved here/created".
+                if path.exists() {
+                    // File/dir appeared at this path (moved or renamed here)
+                    if path.is_dir() {
+                        info!("FS: dir appeared (rename-to) {}", path.display());
+                        Some(FsChange::DirCreated(path.clone()))
+                    } else if is_md {
+                        info!("FS: file appeared (rename-to) {}", path.display());
+                        Some(FsChange::FileCreated(path.clone()))
+                    } else {
+                        None
+                    }
+                } else {
+                    // File/dir no longer exists (moved away, deleted, or trashed)
+                    if is_md {
+                        info!("FS: file gone (rename-from/delete) {}", path.display());
+                        Some(FsChange::FileDeleted(path.clone()))
+                    } else {
+                        // Could be a directory — check by extension
+                        if path.extension().is_none() {
+                            info!("FS: dir gone (rename-from/delete) {}", path.display());
+                            Some(FsChange::DirDeleted(path.clone()))
+                        } else {
+                            None
+                        }
+                    }
+                }
             }
         }
         EventKind::Modify(_) => {
