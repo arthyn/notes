@@ -118,8 +118,8 @@ disconnectBtn.addEventListener("click", async () => {
   notebookSelect.classList.add("hidden");
 });
 
-document.getElementById("quit-btn").addEventListener("click", () => {
-  window.__TAURI__.process.exit(0);
+document.getElementById("quit-btn").addEventListener("click", async () => {
+  await invoke("quit_app");
 });
 
 function updateConnectionUI() {

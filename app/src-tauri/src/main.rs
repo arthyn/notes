@@ -9,7 +9,7 @@ mod urbit;
 use std::sync::Arc;
 use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconEvent},
-    Emitter, Manager,
+    ActivationPolicy, Emitter, Manager,
 };
 use tokio::sync::RwLock;
 
@@ -32,6 +32,9 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(ActivationPolicy::Accessory);
+
             let engine = Arc::new(RwLock::new(SyncEngine::new()));
 
             // Set up activity event relay: buffer + emit to frontend
@@ -87,6 +90,22 @@ fn main() {
                 });
             }
 
+            // Pre-create the popover window (hidden) so first open is instant
+            let _window = tauri::WebviewWindowBuilder::new(
+                app,
+                "popover",
+                tauri::WebviewUrl::App("index.html".into()),
+            )
+            .title("Notes Sync")
+            .inner_size(320.0, 480.0)
+            .resizable(false)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .visible(false)
+            .build()
+            .expect("failed to pre-create popover window");
+
             // No native tray menu — the popover UI has Quit built in
             if let Some(tray) = app.tray_by_id("main") {
                 let app_handle = app.handle().clone();
@@ -128,6 +147,7 @@ fn main() {
             commands::get_notebooks,
             commands::select_notebooks,
             commands::get_activity,
+            commands::quit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running application");
@@ -144,22 +164,5 @@ fn toggle_popover(app: &tauri::AppHandle, x: f64, y: f64) {
             let _ = window.show();
             let _ = window.set_focus();
         }
-    } else {
-        let window = tauri::WebviewWindowBuilder::new(
-            app,
-            "popover",
-            tauri::WebviewUrl::App("index.html".into()),
-        )
-        .title("Notes Sync")
-        .inner_size(320.0, 480.0)
-        .resizable(false)
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .visible(true)
-        .build()
-        .expect("failed to create popover window");
-
-        let _ = window.set_position(pos);
     }
 }

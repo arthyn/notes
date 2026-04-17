@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::AppState;
 
@@ -139,4 +139,10 @@ pub async fn select_notebooks(
         .select_notebooks(flags)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn quit_app(app: AppHandle) -> Result<(), String> {
+    app.exit(0);
+    Ok(())
 }
