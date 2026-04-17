@@ -61,11 +61,13 @@
         %notebook-created
       :~  ['type' s+'notebook-created']
           ['notebookId' (numb id.notebook.evt)]
+          ['notebook' (notebook notebook.evt)]
           ['actor' s+(scot %p actor.evt)]
       ==
         %notebook-renamed
       :~  ['type' s+'notebook-renamed']
           ['notebookId' (numb notebook-id.evt)]
+          ['title' s+title.evt]
           ['actor' s+(scot %p actor.evt)]
       ==
         %member-joined
@@ -84,18 +86,21 @@
       :~  ['type' s+'folder-created']
           ['folderId' (numb id.folder.evt)]
           ['notebookId' (numb notebook-id.folder.evt)]
+          ['folder' (folder folder.evt)]
           ['actor' s+(scot %p actor.evt)]
       ==
         %folder-renamed
       :~  ['type' s+'folder-renamed']
           ['folderId' (numb folder-id.evt)]
           ['notebookId' (numb notebook-id.evt)]
+          ['name' s+name.evt]
           ['actor' s+(scot %p actor.evt)]
       ==
         %folder-moved
       :~  ['type' s+'folder-moved']
           ['folderId' (numb folder-id.evt)]
           ['notebookId' (numb notebook-id.evt)]
+          ['newParentFolderId' (numb new-parent-folder-id.evt)]
           ['actor' s+(scot %p actor.evt)]
       ==
         %folder-deleted
@@ -108,12 +113,14 @@
       :~  ['type' s+'note-created']
           ['noteId' (numb id.note.evt)]
           ['notebookId' (numb notebook-id.note.evt)]
+          ['note' (note note.evt)]
           ['actor' s+(scot %p actor.evt)]
       ==
         %note-renamed
       :~  ['type' s+'note-renamed']
           ['noteId' (numb note-id.evt)]
           ['notebookId' (numb notebook-id.evt)]
+          ['title' s+title.evt]
           ['actor' s+(scot %p actor.evt)]
       ==
         %note-moved
@@ -134,6 +141,7 @@
           ['noteId' (numb id.note.evt)]
           ['notebookId' (numb notebook-id.note.evt)]
           ['revision' (numb revision.note.evt)]
+          ['note' (note note.evt)]
           ['actor' s+(scot %p actor.evt)]
       ==
     ==
@@ -170,6 +178,26 @@
       %'editor'  %editor
       %'viewer'  %viewer
     ==
+  ::  +routed-action: parse action with optional _flag for routing
+  ::  format: {"_flag": "~ship/name", "action-name": {fields...}}
+  ++  routed-action
+    |=  jon=json
+    ^-  routed-action:notes
+    ?>  ?=([%o *] jon)
+    =/  flag-json=(unit json)  (~(get by p.jon) '_flag')
+    =/  target=(unit flag:notes)
+      ?~  flag-json  ~
+      ?.  ?=([%s *] u.flag-json)  ~
+      =/  raw=tape  (trip p.u.flag-json)
+      =/  idx  (find "/" raw)
+      ?~  idx  ~
+      =/  ship-text=@t  (crip (scag u.idx raw))
+      =/  name-text=@t  (crip (slag +(u.idx) raw))
+      `[(slav %p ship-text) name-text]
+    ::  remove _flag before parsing the action
+    =/  clean=json  [%o (~(del by p.jon) '_flag')]
+    [target (action clean)]
+  ::
   ::  +action: parse action from JSON
   ::  format: {"action-name": {fields...}}
   ++  action
@@ -254,6 +282,14 @@
       :-  %leave-remote
       =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) val)
       [-.raw +.raw]
+    ::
+        %'publish-note'
+      :-  %publish-note
+      ((ot ~[['notebookId' ni] ['noteId' ni] ['html' so]]) val)
+    ::
+        %'unpublish-note'
+      :-  %unpublish-note
+      ((ot ~[['notebookId' ni] ['noteId' ni]]) val)
     ==
   ::
   ++  import-node

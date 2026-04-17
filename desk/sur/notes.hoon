@@ -88,6 +88,8 @@
           parent-folder-id=@ud
           tree=(list import-node)
       ==
+      [%publish-note notebook-id=@ud note-id=@ud html=@t]
+      [%unpublish-note notebook-id=@ud note-id=@ud]
   ==
 ::
 +$  c-notes
@@ -143,6 +145,9 @@
 +$  update    u-notes
 +$  response  r-notes
 +$  event     u-notes
+::  routed-action: action with optional explicit flag for routing
+::  avoids notebook-id collisions across ships
++$  routed-action  [target=(unit flag) =action]
 ::
 ::  state-0: legacy single-player state (kept for migration)
 ::  updates uses * to avoid type-checking old event shapes
@@ -164,5 +169,13 @@
       next-id=@ud
   ==
 ::
-+$  state  state-1
+::  state-2: adds published notes cache
++$  state-2
+  $:  %2
+      books=(map flag [=net =notebook-state])
+      next-id=@ud
+      published=(map @ud @t)
+  ==
+::
++$  state  state-2
 --

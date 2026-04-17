@@ -89,8 +89,9 @@
   .sidebar-list { flex: 1; overflow-y: auto; padding-bottom: 8px; min-height: 0; }
   .nb-item {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
+    gap: 4px 6px;
     padding: 6px 10px;
     cursor: pointer;
     border-radius: 4px;
@@ -103,6 +104,17 @@
   .nb-item.active { background: var(--accent); color: #fff; }
   .nb-item .nb-icon { flex-shrink: 0; display: flex; align-items: center; }
   .nb-item .nb-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nb-item .nb-flag {
+    width: 100%;
+    font-size: 10px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding-left: 22px;
+  }
+  .nb-item .nb-flag:hover { text-decoration: underline; }
+  .nb-item.active .nb-flag { color: rgba(255,255,255,0.6); }
 
   /* ── sidebar bottom actions ── */
   .sidebar-actions {
@@ -315,6 +327,16 @@
   }
   .modal input:focus, .modal select:focus { border-color: var(--accent); }
   .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .modal-choices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+  .modal-choice {
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 10px 12px; border-radius: 6px;
+    background: var(--bg); border: 1px solid var(--border);
+    cursor: pointer; text-align: left; color: var(--text);
+  }
+  .modal-choice:hover { border-color: var(--accent); }
+  .modal-choice-title { font-size: 13px; font-weight: 500; }
+  .modal-choice-desc { font-size: 11px; color: var(--text-muted); }
   .btn { padding: 6px 14px; border-radius: 5px; font-size: 13px; cursor: pointer; border: none; font-family: var(--font); }
   .btn-primary { background: var(--accent); color: #fff; }
   .btn-primary:hover { background: var(--accent-hover); }
@@ -452,6 +474,11 @@
   <symbol id="i-ellipsis" viewBox="0 0 16 16" fill="currentColor" stroke="none">
     <circle cx="4" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12" cy="8" r="1.2"/>
   </symbol>
+  <symbol id="i-globe" viewBox="0 0 16 16">
+    <circle cx="8" cy="8" r="6.5"/>
+    <ellipse cx="8" cy="8" rx="3" ry="6.5"/>
+    <line x1="1.5" y1="8" x2="14.5" y2="8"/>
+  </symbol>
 </svg>
 
 <!-- Connect panel (shown until URL + auth set) -->
@@ -465,9 +492,9 @@
 </div>
 
 <header>
-  <div id="status-dot"></div>
   <h1><svg class="icon" style="width:18px;height:18px;vertical-align:-3px;margin-right:4px"><use href="#i-notebook"/></svg>Notes</h1>
   <span id="ship-label"></span>
+  <div id="status-dot"></div>
 </header>
 
 <div class="layout">
@@ -475,7 +502,7 @@
   <div class="sidebar">
     <div class="sidebar-section">
       Notebooks
-      <button class="icon-btn" title="New notebook" onclick="openModal(&quot;new-notebook&quot;)"><svg class="icon"><use href="#i-plus"/></svg></button>
+      <button class="icon-btn" title="Add notebook" onclick="openModal(&quot;add-notebook&quot;)"><svg class="icon"><use href="#i-plus"/></svg></button>
     </div>
     <div class="sidebar-list" id="notebooks-list"></div>
     <div class="sidebar-actions">
@@ -503,9 +530,12 @@
       <input id="note-title-input" type="text" placeholder="Untitled" oninput="onEditorInput()" />
       <span class="save-status" id="save-status"></span>
       <button class="icon-btn" id="preview-btn" onclick="togglePreview()" title="Preview"><svg class="icon"><use href="#i-eye"/></svg></button>
+      <button class="icon-btn" id="view-published-btn" onclick="viewPublished()" title="View published" style="display:none"><svg class="icon"><use href="#i-globe"/></svg></button>
       <div class="overflow-wrap" id="overflow-wrap" style="display:none">
         <button class="icon-btn" onclick="toggleOverflow()" title="More"><svg class="icon"><use href="#i-ellipsis"/></svg></button>
         <div class="overflow-menu" id="overflow-menu">
+          <button id="publish-btn" onclick="publishNote();">Publish to web</button>
+          <button id="unpublish-btn" onclick="unpublishNote();" style="display:none">Unpublish</button>
           <button onclick="deleteNote();" class="danger">Delete note</button>
         </div>
       </div>
@@ -533,6 +563,7 @@ let msgId = 1;
 let notebooks = {};   // id -> notebook
 let folders = {};     // id -> folder
 let notes = {};       // id -> note
+let publishedIds = new Set();  // set of published note IDs
 
 let activeNotebookId = null;   // numeric id
 let activeNotebookFlag = null; // "~ship/name" for scry paths
@@ -588,6 +619,32 @@ async function connect() {
 
   openChannel();
   await loadNotebooks();
+  await loadPublished();
+  await restoreSelection();
+}
+
+function saveSelection() {
+  localStorage.setItem('notes-selection', JSON.stringify({
+    notebookId: activeNotebookId,
+    folderId: activeFolderId,
+    noteId: activeNoteId,
+  }));
+}
+
+async function restoreSelection() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('notes-selection') || '{}');
+    if (saved.notebookId && notebooks[saved.notebookId]) {
+      await selectNotebook(saved.notebookId);
+      if (saved.folderId && folders[saved.folderId]) {
+        activeFolderId = saved.folderId;
+        renderItems();
+      }
+      if (saved.noteId && notes[saved.noteId]) {
+        await selectNote(saved.noteId);
+      }
+    }
+  } catch {}
 }
 
 // ── Eyre Channel ──────────────────────────────────────────────────────────
@@ -647,6 +704,10 @@ async function poke(actions) {
 
 async function pokeAction(action) {
   const id = msgId++;
+  // Include _flag for unambiguous notebook routing across ships
+  if (activeNotebookFlag) {
+    action._flag = activeNotebookFlag;
+  }
   await poke([{
     id, action: "poke",
     ship: SHIP.replace("~",""),
@@ -702,6 +763,11 @@ function handleEvent(msg) {
 }
 
 // ── Load Data ─────────────────────────────────────────────────────────────
+async function loadPublished() {
+  const data = await scry("/v0/published");
+  publishedIds = new Set(data || []);
+}
+
 async function loadNotebooks() {
   const data = await scry("/v0/notebooks");
   if (!data) return;
@@ -765,8 +831,16 @@ function renderNotebooks() {
   Object.values(notebooks).sort((a,b) => a.title.localeCompare(b.title)).forEach(nb => {
     const div = document.createElement("div");
     div.className = "nb-item" + (nb.id === activeNotebookId ? " active" : "");
-    div.innerHTML = `<span class="nb-icon">${icon('notebook')}</span><span class="nb-name">${esc(nb.title)}</span>`;
+    div.innerHTML = `<span class="nb-icon">${icon('notebook')}</span><span class="nb-name">${esc(nb.title)}</span><span class="nb-flag" title="Click to copy flag">${esc(nb.flag)}</span>`;
     div.onclick = () => selectNotebook(nb.id);
+    div.querySelector(".nb-flag").onclick = (e) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(nb.flag);
+      const el = e.target;
+      const orig = el.textContent;
+      el.textContent = "copied!";
+      setTimeout(() => el.textContent = orig, 1000);
+    };
     el.appendChild(div);
   });
 }
@@ -851,6 +925,7 @@ async function navigateToFolder(id) {
   activeNoteId = null;
   clearEditor();
   renderItems();
+  saveSelection();
 }
 
 async function folderUp() {
@@ -1106,6 +1181,7 @@ async function selectNotebook(id) {
   await loadFolders(id);
   await loadNotes(id);
   subscribeEvents();
+  saveSelection();
   if (isMobile()) mobileSetView("notes");
 }
 
@@ -1120,6 +1196,12 @@ async function selectNote(id) {
   savedRevision = n.revision;
   clearDirty();
   document.getElementById("overflow-wrap").style.display = "";
+  saveSelection();
+  // Update publish/unpublish button state
+  const isPublished = publishedIds.has(id);
+  document.getElementById("publish-btn").style.display = isPublished ? "none" : "";
+  document.getElementById("unpublish-btn").style.display = isPublished ? "" : "none";
+  document.getElementById("view-published-btn").style.display = isPublished ? "" : "none";
   if (isMobile()) mobileSetView("editor");
 }
 
@@ -1164,8 +1246,13 @@ async function autoSave() {
   document.getElementById("save-status").textContent = "Saving\u2026";
 
   try {
-    await pokeAction({ "update-note": { notebookId: n.notebookId, noteId: activeNoteId, bodyMd: body, expectedRevision: savedRevision } });
-    savedRevision++;
+    // Use revision 0 (force-update) for remote notebooks where our
+    // local revision may be stale; use real revision for local notebooks
+    const nb = notebooks[n.notebookId];
+    const isLocal = nb && nb.host === `~${SHIP}`;
+    const rev = isLocal ? savedRevision : 0;
+    await pokeAction({ "update-note": { notebookId: n.notebookId, noteId: activeNoteId, bodyMd: body, expectedRevision: rev } });
+    if (isLocal) savedRevision++;
     if (title !== n.title) {
       await pokeAction({ "rename-note": { notebookId: n.notebookId, noteId: activeNoteId, title } });
     }
@@ -1215,6 +1302,113 @@ async function deleteNote() {
   if (isMobile()) mobileSetView("notes");
 }
 
+// ── Publish ──────────────────────────────────────────────────────────────
+function publishTemplate(title, bodyHtml) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${esc(title)}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0f0f0f; color: #e8e8e8;
+    line-height: 1.7; font-size: 16px;
+    padding: 48px 24px;
+  }
+  article {
+    max-width: 680px; margin: 0 auto;
+  }
+  h1 { font-size: 2em; margin-bottom: 0.4em; color: #fff; }
+  h2 { font-size: 1.5em; margin: 1.4em 0 0.4em; color: #fff; }
+  h3 { font-size: 1.25em; margin: 1.2em 0 0.3em; color: #fff; }
+  h4, h5, h6 { margin: 1em 0 0.3em; color: #fff; }
+  p { margin: 0.8em 0; }
+  a { color: #7c6af7; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    background: #1a1a1a; padding: 2px 5px; border-radius: 3px;
+    font-size: 0.9em;
+  }
+  pre {
+    background: #1a1a1a; padding: 16px; border-radius: 6px;
+    overflow-x: auto; margin: 1em 0; border: 1px solid #2e2e2e;
+  }
+  pre code { background: none; padding: 0; }
+  blockquote {
+    border-left: 3px solid #7c6af7; padding-left: 16px;
+    color: #999; margin: 1em 0;
+  }
+  ul, ol { padding-left: 24px; margin: 0.8em 0; }
+  li { margin: 0.3em 0; }
+  hr { border: none; border-top: 1px solid #2e2e2e; margin: 2em 0; }
+  img { max-width: 100%; border-radius: 6px; }
+  table { border-collapse: collapse; margin: 1em 0; width: 100%; }
+  th, td { border: 1px solid #2e2e2e; padding: 8px 12px; text-align: left; }
+  th { background: #1a1a1a; }
+  .pub-footer {
+    margin-top: 48px; padding-top: 16px;
+    border-top: 1px solid #2e2e2e;
+    font-size: 12px; color: #666;
+  }
+</style>
+</head>
+<body>
+<article>
+<h1>${esc(title)}</h1>
+${bodyHtml}
+<div class="pub-footer">Published from Urbit</div>
+</article>
+</body>
+</html>`;
+}
+
+async function publishNote() {
+  closeOverflow();
+  if (!activeNoteId || !activeNotebookId) return;
+  const n = notes[activeNoteId];
+  if (!n) return;
+
+  // Save first if dirty
+  if (dirty) await autoSave();
+
+  const body = document.getElementById("editor").value;
+  const html = publishTemplate(n.title || "Untitled", renderMarkdown(body));
+
+  await pokeAction({
+    "publish-note": { notebookId: activeNotebookId, noteId: activeNoteId, html }
+  });
+
+  const pubUrl = `${BASE_URL}/notes/pub/${activeNoteId}`;
+  publishedIds.add(activeNoteId);
+  document.getElementById("publish-btn").style.display = "none";
+  document.getElementById("unpublish-btn").style.display = "";
+  document.getElementById("view-published-btn").style.display = "";
+  window.open(pubUrl, '_blank');
+}
+
+async function unpublishNote() {
+  closeOverflow();
+  if (!activeNoteId || !activeNotebookId) return;
+
+  await pokeAction({
+    "unpublish-note": { notebookId: activeNotebookId, noteId: activeNoteId }
+  });
+
+  publishedIds.delete(activeNoteId);
+  document.getElementById("publish-btn").style.display = "";
+  document.getElementById("unpublish-btn").style.display = "none";
+  document.getElementById("view-published-btn").style.display = "none";
+}
+
+function viewPublished() {
+  if (!activeNoteId) return;
+  window.open(`${BASE_URL}/notes/pub/${activeNoteId}`, '_blank');
+}
+
 // ── Dirty state ──────────────────────────────────────────────────────────
 function clearDirty() {
   dirty = false;
@@ -1240,7 +1434,24 @@ function openModal(type) {
   const box = document.getElementById("modal-box");
   const backdrop = document.getElementById("modal-backdrop");
 
-  if (type === "new-notebook") {
+  if (type === "add-notebook") {
+    box.innerHTML = `
+      <h3>Add Notebook</h3>
+      <div class="modal-choices">
+        <button class="modal-choice" onclick="openModal('new-notebook')">
+          <span class="modal-choice-title">Create new</span>
+          <span class="modal-choice-desc">Start a fresh notebook</span>
+        </button>
+        <button class="modal-choice" onclick="openModal('join-notebook')">
+          <span class="modal-choice-title">Join existing</span>
+          <span class="modal-choice-desc">Enter a flag to join a shared notebook</span>
+        </button>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      </div>
+    `;
+  } else if (type === "new-notebook") {
     box.innerHTML = `
       <h3>New Notebook</h3>
       <input id="m-title" type="text" placeholder="Notebook title" autofocus />
@@ -1250,6 +1461,17 @@ function openModal(type) {
       </div>
     `;
     box.querySelector("#m-title").addEventListener("keydown", e => { if (e.key==="Enter") createNotebook(); });
+  } else if (type === "join-notebook") {
+    box.innerHTML = `
+      <h3>Join Notebook</h3>
+      <input id="m-flag" type="text" placeholder="~sampel-palnet/notebook-name" autofocus />
+      <div style="font-size:11px;color:var(--text-muted);margin:6px 0">Enter the flag shared by the notebook host</div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="joinNotebook()">Join</button>
+      </div>
+    `;
+    box.querySelector("#m-flag").addEventListener("keydown", e => { if (e.key==="Enter") joinNotebook(); });
   } else if (type === "new-folder") {
     if (!activeNotebookId) { alert("Select a notebook first"); return; }
     const rootId = rootFolderId();
@@ -1287,6 +1509,17 @@ async function createNotebook() {
   document.getElementById("modal-backdrop").classList.remove("open");
   await pokeAction({ "create-notebook": title });
   setTimeout(() => loadNotebooks(), 300);
+}
+
+async function joinNotebook() {
+  const flag = document.getElementById("m-flag")?.value?.trim();
+  if (!flag || !flag.includes("/")) return;
+  const parts = flag.split("/");
+  const ship = parts[0].startsWith("~") ? parts[0] : "~" + parts[0];
+  const name = parts.slice(1).join("/");
+  document.getElementById("modal-backdrop").classList.remove("open");
+  await pokeAction({ "join-remote": { ship, name } });
+  setTimeout(() => loadNotebooks(), 2000);
 }
 
 async function createFolder() {

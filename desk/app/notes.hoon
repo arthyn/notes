@@ -6,7 +6,7 @@
 ::
 |%
 +$  card  card:agent:gall
-+$  current-state  state-1:notes
++$  current-state  state-2:notes
 --
 ::
 =|  current-state
@@ -77,7 +77,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'svg-icons-v1'
+++  dummy  'dot-right-v1'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -98,10 +98,15 @@
     ?:  ?=(^ raw)
       ;;(@ -.raw)
     0
-  ::  state-1: already current format, load directly
-  ?:  =(tag %1)
+  ::  state-2: current format
+  ?:  =(tag %2)
     =/  s=current-state  !<(current-state old)
     =.  state  s
+    cor
+  ::  state-1: migrate by adding empty published map
+  ?:  =(tag %1)
+    =/  s=state-1:notes  !<(state-1:notes old)
+    =.  state  [%2 books.s next-id.s ~]
     cor
   ::  state-0 or unknown: start fresh
   ::  acceptable during this migration; task says single-player breakage is ok
@@ -113,7 +118,20 @@
   ?+  mark  ~|(bad-mark+mark !!)
       %handle-http-request
     =/  req  !<([eyre-id=@ta =inbound-request:eyre] vase)
-    =/  data=octs  [(met 3 index) index]
+    =/  url=@t  url.request.inbound-request.req
+    =/  url-tape=tape  (trip url)
+    ::  check if this is a published note request: /notes/pub/{note-id}
+    =/  pub-html=(unit @t)
+      ?.  =("/notes/pub/" (scag 11 url-tape))  ~
+      =/  id-tape=tape  (slag 11 url-tape)
+      =/  nid=@ud  (fall (rush (crip id-tape) dem) 0)
+      ?:  =(0 nid)  ~
+      (~(get by published.state) nid)
+    ::  serve published note or the UI
+    =/  data=octs
+      ?^  pub-html
+        [(met 3 u.pub-html) u.pub-html]
+      [(met 3 index) index]
     =/  headers=(list [key=@t value=@t])
       :~  ['content-type' 'text/html']
       ==
@@ -125,7 +143,8 @@
     ==
   ::
       %notes-action
-    =/  act=action:notes  !<(action:notes vase)
+    =/  ra=routed-action:notes  !<(routed-action:notes vase)
+    =/  act=action:notes  action.ra
     ::  for %create-notebook we always act as local host
     ?:  ?=(%create-notebook -.act)
       se-abet:(se-create-notebook:(se-init:se-core act) act)
@@ -134,9 +153,19 @@
       (join-remote flag.act)
     ?:  ?=(%leave-remote -.act)
       (leave-remote flag.act)
-    ::  for other actions, look up the notebook by id across all books
-    =/  nid=@ud  (action-notebook-id act)
-    =/  =flag:notes  (find-flag-by-nid nid)
+    ::  publish/unpublish are local-only, not forwarded to remote hosts
+    ?:  ?=(%publish-note -.act)
+      =.  published.state  (~(put by published.state) note-id.act html.act)
+      cor
+    ?:  ?=(%unpublish-note -.act)
+      =.  published.state  (~(del by published.state) note-id.act)
+      cor
+    ::  use explicit flag from _flag field if present,
+    ::  otherwise fall back to notebook-id lookup
+    =/  =flag:notes
+      ?^  target.ra
+        u.target.ra
+      (find-flag-by-nid (action-notebook-id act))
     =/  entry=[=net:notes =notebook-state:notes]
       (~(got by books.state) flag)
     ?:  ?=(%pub -.net.entry)
@@ -286,6 +315,30 @@
       %+  turn  ~(val by notes.notebook-state.u.entry)
       note:enjs:notes-json
     ``json+!>([%a nts])
+    ::  /x/v0/note/<ship>/<name>/<id> — single note by ID
+      [%x %v0 %note ship=@ name=@ id=@ ~]
+    =/  =flag:notes  [(slav %p ship.pole) name.pole]
+    =/  entry=(unit [=net:notes =notebook-state:notes])
+      (~(get by books.state) flag)
+    ?~  entry  ``json+!>(~)
+    ?>  (can-view-flag flag src.bowl)
+    =/  nid=@ud  (slav %ud id.pole)
+    =/  nt=(unit note:notes)
+      (~(get by notes.notebook-state.u.entry) nid)
+    ?~  nt  ``json+!>(~)
+    ``json+!>((note:enjs:notes-json u.nt))
+    ::  /x/v0/folder/<ship>/<name>/<id> — single folder by ID
+      [%x %v0 %folder ship=@ name=@ id=@ ~]
+    =/  =flag:notes  [(slav %p ship.pole) name.pole]
+    =/  entry=(unit [=net:notes =notebook-state:notes])
+      (~(get by books.state) flag)
+    ?~  entry  ``json+!>(~)
+    ?>  (can-view-flag flag src.bowl)
+    =/  fid=@ud  (slav %ud id.pole)
+    =/  fld=(unit folder:notes)
+      (~(get by folders.notebook-state.u.entry) fid)
+    ?~  fld  ``json+!>(~)
+    ``json+!>((folder:enjs:notes-json u.fld))
     ::  /x/v0/members/<ship>/<name>
       [%x %v0 %members ship=@ name=@ ~]
     =/  =flag:notes  [(slav %p ship.pole) name.pole]
@@ -301,6 +354,12 @@
           ['role' s+(scot %tas r)]
       ==
     ``json+!>([%a mlist])
+    ::  /x/v0/published — list of published note IDs
+      [%x %v0 %published ~]
+    =/  ids=(list json)
+      %+  turn  ~(tap in ~(key by published.state))
+      numb:enjs:format
+    ``json+!>([%a ids])
   ==
 ::
 ++  agent
@@ -382,6 +441,8 @@
       %update-note          notebook-id.act
       %batch-import         notebook-id.act
       %batch-import-tree    notebook-id.act
+      %publish-note         notebook-id.act
+      %unpublish-note       notebook-id.act
   ==
 ::
 ::  +command-notebook-id: extract notebook id from command
@@ -430,6 +491,8 @@
       %update-note          [%update-note notebook-id.act note-id.act body-md.act expected-revision.act actor]
       %batch-import         [%batch-import notebook-id.act folder-id.act notes.act actor]
       %batch-import-tree    [%batch-import-tree notebook-id.act parent-folder-id.act tree.act actor]
+      %publish-note         !!
+      %unpublish-note       !!
   ==
 ::
 ::  ====  se-core: server/host core  ====
@@ -488,10 +551,12 @@
       ?~  existing  now.bowl
       $(now.bowl `@da`(add now.bowl ^~((div ~s1 (bex 16)))))
     =.  log  (put:log-on:notes log [ts u-notes])
-    ::  broadcast fact to all subscribers on the update path
+    ::  broadcast fact to subscribers on both the update and stream paths
     =/  =response:notes  [%update ts u-notes]
+    =/  stream-path=path  (weld se-area /stream)
+    =/  paths=(list path)  ~[se-sub-path stream-path]
     %-  give
-    [%fact [se-sub-path]~ notes-response+!>(response)]
+    [%fact paths notes-response+!>(response)]
   ::
   ::  +se-watch-sub: send initial snapshot to a new subscriber
   ++  se-watch-sub
@@ -809,7 +874,10 @@
       (~(got by notes.notebook-state) note-id.cmd)
     ?>  (se-can-edit actor.cmd)
     ::  optimistic concurrency check
-    ?>  =(revision.nt expected-revision.cmd)
+    ::  when expected-revision is 0, skip the check (force update) —
+    ::  subscribers may have stale revisions
+    ?:  &(!=(0 expected-revision.cmd) !=(revision.nt expected-revision.cmd))
+      ~|(%revision-mismatch !!)
     =.  nt
       %_  nt
         body-md     body-md.cmd
