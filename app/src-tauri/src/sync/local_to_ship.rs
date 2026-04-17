@@ -65,6 +65,7 @@ pub async fn handle_fs_change(
                 // subscriber's local revision is unreliable (may be stale).
                 // The host agent accepts 0 as "skip revision check".
                 let action = json!({
+                    "_flag": flag,
                     "update-note": {
                         "notebookId": notebook_id,
                         "noteId": note_id,
@@ -131,6 +132,7 @@ pub async fn handle_fs_change(
                 let content = std::fs::read_to_string(path)?;
 
                 let action = json!({
+                    "_flag": flag,
                     "create-note": {
                         "notebookId": notebook_id,
                         "folderId": folder_id,
@@ -201,6 +203,7 @@ pub async fn handle_fs_change(
                 let note_id = note_sync.note_id;
 
                 let action = json!({
+                    "_flag": flag,
                     "delete-note": {
                         "noteId": note_id,
                         "notebookId": notebook_id
@@ -235,6 +238,7 @@ pub async fn handle_fs_change(
                     .unwrap_or_else(|| "Untitled".to_string());
 
                 let action = json!({
+                    "_flag": flag,
                     "rename-note": {
                         "notebookId": notebook_id,
                         "noteId": note_id,
@@ -303,6 +307,7 @@ pub async fn handle_fs_change(
                 let folder_name = components.last().unwrap_or(&"");
 
                 let action = json!({
+                    "_flag": flag,
                     "create-folder": {
                         "notebookId": notebook_id,
                         "parentFolderId": parent_folder_id,
@@ -337,6 +342,7 @@ pub async fn handle_fs_change(
                     let notebook_id = nb.notebook_id;
 
                     let action = json!({
+                        "_flag": flag,
                         "delete-folder": {
                             "notebookId": notebook_id,
                             "folderId": folder_id,
@@ -383,6 +389,7 @@ pub async fn handle_fs_change(
                         .unwrap_or_default();
 
                     let action = json!({
+                        "_flag": flag,
                         "rename-folder": {
                             "notebookId": notebook_id,
                             "folderId": folder_id,

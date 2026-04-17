@@ -77,7 +77,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'svg-icons-v1'
+++  dummy  'routed-action-v1'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -125,7 +125,8 @@
     ==
   ::
       %notes-action
-    =/  act=action:notes  !<(action:notes vase)
+    =/  ra=routed-action:notes  !<(routed-action:notes vase)
+    =/  act=action:notes  action.ra
     ::  for %create-notebook we always act as local host
     ?:  ?=(%create-notebook -.act)
       se-abet:(se-create-notebook:(se-init:se-core act) act)
@@ -134,9 +135,12 @@
       (join-remote flag.act)
     ?:  ?=(%leave-remote -.act)
       (leave-remote flag.act)
-    ::  for other actions, look up the notebook by id across all books
-    =/  nid=@ud  (action-notebook-id act)
-    =/  =flag:notes  (find-flag-by-nid nid)
+    ::  use explicit flag from _flag field if present,
+    ::  otherwise fall back to notebook-id lookup
+    =/  =flag:notes
+      ?^  target.ra
+        u.target.ra
+      (find-flag-by-nid (action-notebook-id act))
     =/  entry=[=net:notes =notebook-state:notes]
       (~(got by books.state) flag)
     ?:  ?=(%pub -.net.entry)

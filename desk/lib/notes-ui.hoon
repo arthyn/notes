@@ -89,8 +89,9 @@
   .sidebar-list { flex: 1; overflow-y: auto; padding-bottom: 8px; min-height: 0; }
   .nb-item {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
+    gap: 4px 6px;
     padding: 6px 10px;
     cursor: pointer;
     border-radius: 4px;
@@ -103,6 +104,17 @@
   .nb-item.active { background: var(--accent); color: #fff; }
   .nb-item .nb-icon { flex-shrink: 0; display: flex; align-items: center; }
   .nb-item .nb-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nb-item .nb-flag {
+    width: 100%;
+    font-size: 10px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding-left: 22px;
+  }
+  .nb-item .nb-flag:hover { text-decoration: underline; }
+  .nb-item.active .nb-flag { color: rgba(255,255,255,0.6); }
 
   /* ── sidebar bottom actions ── */
   .sidebar-actions {
@@ -475,6 +487,7 @@
   <div class="sidebar">
     <div class="sidebar-section">
       Notebooks
+      <button class="icon-btn" title="Join notebook" onclick="openModal(&quot;join-notebook&quot;)"><svg class="icon"><use href="#i-download"/></svg></button>
       <button class="icon-btn" title="New notebook" onclick="openModal(&quot;new-notebook&quot;)"><svg class="icon"><use href="#i-plus"/></svg></button>
     </div>
     <div class="sidebar-list" id="notebooks-list"></div>
@@ -647,6 +660,10 @@ async function poke(actions) {
 
 async function pokeAction(action) {
   const id = msgId++;
+  // Include _flag for unambiguous notebook routing across ships
+  if (activeNotebookFlag) {
+    action._flag = activeNotebookFlag;
+  }
   await poke([{
     id, action: "poke",
     ship: SHIP.replace("~",""),
@@ -765,8 +782,16 @@ function renderNotebooks() {
   Object.values(notebooks).sort((a,b) => a.title.localeCompare(b.title)).forEach(nb => {
     const div = document.createElement("div");
     div.className = "nb-item" + (nb.id === activeNotebookId ? " active" : "");
-    div.innerHTML = `<span class="nb-icon">${icon('notebook')}</span><span class="nb-name">${esc(nb.title)}</span>`;
+    div.innerHTML = `<span class="nb-icon">${icon('notebook')}</span><span class="nb-name">${esc(nb.title)}</span><span class="nb-flag" title="Click to copy flag">${esc(nb.flag)}</span>`;
     div.onclick = () => selectNotebook(nb.id);
+    div.querySelector(".nb-flag").onclick = (e) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(nb.flag);
+      const el = e.target;
+      const orig = el.textContent;
+      el.textContent = "copied!";
+      setTimeout(() => el.textContent = orig, 1000);
+    };
     el.appendChild(div);
   });
 }
@@ -1164,8 +1189,13 @@ async function autoSave() {
   document.getElementById("save-status").textContent = "Saving\u2026";
 
   try {
-    await pokeAction({ "update-note": { notebookId: n.notebookId, noteId: activeNoteId, bodyMd: body, expectedRevision: savedRevision } });
-    savedRevision++;
+    // Use revision 0 (force-update) for remote notebooks where our
+    // local revision may be stale; use real revision for local notebooks
+    const nb = notebooks[n.notebookId];
+    const isLocal = nb && nb.host === `~${SHIP}`;
+    const rev = isLocal ? savedRevision : 0;
+    await pokeAction({ "update-note": { notebookId: n.notebookId, noteId: activeNoteId, bodyMd: body, expectedRevision: rev } });
+    if (isLocal) savedRevision++;
     if (title !== n.title) {
       await pokeAction({ "rename-note": { notebookId: n.notebookId, noteId: activeNoteId, title } });
     }
@@ -1250,6 +1280,17 @@ function openModal(type) {
       </div>
     `;
     box.querySelector("#m-title").addEventListener("keydown", e => { if (e.key==="Enter") createNotebook(); });
+  } else if (type === "join-notebook") {
+    box.innerHTML = `
+      <h3>Join Notebook</h3>
+      <input id="m-flag" type="text" placeholder="~sampel-palnet/notebook-name" autofocus />
+      <div style="font-size:11px;color:var(--text-muted);margin:6px 0">Enter the flag shared by the notebook host</div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="joinNotebook()">Join</button>
+      </div>
+    `;
+    box.querySelector("#m-flag").addEventListener("keydown", e => { if (e.key==="Enter") joinNotebook(); });
   } else if (type === "new-folder") {
     if (!activeNotebookId) { alert("Select a notebook first"); return; }
     const rootId = rootFolderId();
@@ -1287,6 +1328,17 @@ async function createNotebook() {
   document.getElementById("modal-backdrop").classList.remove("open");
   await pokeAction({ "create-notebook": title });
   setTimeout(() => loadNotebooks(), 300);
+}
+
+async function joinNotebook() {
+  const flag = document.getElementById("m-flag")?.value?.trim();
+  if (!flag || !flag.includes("/")) return;
+  const parts = flag.split("/");
+  const ship = parts[0].startsWith("~") ? parts[0] : "~" + parts[0];
+  const name = parts.slice(1).join("/");
+  document.getElementById("modal-backdrop").classList.remove("open");
+  await pokeAction({ "join-remote": { ship, name } });
+  setTimeout(() => loadNotebooks(), 2000);
 }
 
 async function createFolder() {

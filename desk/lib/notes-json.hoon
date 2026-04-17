@@ -178,6 +178,26 @@
       %'editor'  %editor
       %'viewer'  %viewer
     ==
+  ::  +routed-action: parse action with optional _flag for routing
+  ::  format: {"_flag": "~ship/name", "action-name": {fields...}}
+  ++  routed-action
+    |=  jon=json
+    ^-  routed-action:notes
+    ?>  ?=([%o *] jon)
+    =/  flag-json=(unit json)  (~(get by p.jon) '_flag')
+    =/  target=(unit flag:notes)
+      ?~  flag-json  ~
+      ?.  ?=([%s *] u.flag-json)  ~
+      =/  raw=tape  (trip p.u.flag-json)
+      =/  idx  (find "/" raw)
+      ?~  idx  ~
+      =/  ship-text=@t  (crip (scag u.idx raw))
+      =/  name-text=@t  (crip (slag +(u.idx) raw))
+      `[(slav %p ship-text) name-text]
+    ::  remove _flag before parsing the action
+    =/  clean=json  [%o (~(del by p.jon) '_flag')]
+    [target (action clean)]
+  ::
   ::  +action: parse action from JSON
   ::  format: {"action-name": {fields...}}
   ++  action
