@@ -374,9 +374,11 @@ Post-v1 UX iteration. Not blocking v1 release; tracked here until scheduled.
 - Quick switcher ("jump to") opened with ⌘E / ⌘K — leap-style fuzzy nav across notebooks/folders/notes
 - Full-text search across notes in a notebook
 - Wiki-links (`[[Note Name]]`) + backlinks panel
+- Rename and delete folders
 
 ### Polish
 - Audit and refine mobile styles across all views
+- Light mode; respect theme + other relevant settings from Landscape
 
 ---
 
