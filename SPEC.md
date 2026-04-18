@@ -380,6 +380,7 @@ Post-v1 UX iteration. Not blocking v1 release; tracked here until scheduled.
 - Audit and refine mobile styles across all views
 - Light mode; respect theme + other relevant settings from Landscape
 - Contextual bottom footer per screen on mobile: notebooks view = brand + hamburger (existing); notebook view = add-folder + add-note + notebook settings; note view = formatting shortcuts (future)
+- Audit and add `title` tooltips on every icon button (gear, hamburger, chevrons, up-arrow, add/import buttons, editor toolbar, etc.)
 
 ### Desktop sync app
 - Navigate back to the main screen automatically (without requiring user input) after a completed action
