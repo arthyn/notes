@@ -380,6 +380,10 @@ Post-v1 UX iteration. Not blocking v1 release; tracked here until scheduled.
 - Audit and refine mobile styles across all views
 - Light mode; respect theme + other relevant settings from Landscape
 
+### Desktop sync app
+- Navigate back to the main screen automatically (without requiring user input) after a completed action
+- Settings screen should always show all potential notebooks available to toggle syncing for, not just currently-synced ones
+
 ---
 
 ## v1.1 Extension: Knowledge Compiler Mode (Self-Contained)
