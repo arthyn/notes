@@ -219,7 +219,7 @@
   .item-body { flex: 1; min-width: 0; }
   .item-title-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
   .item-title { flex: 1; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .item-date { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+  .item-date { font-size: 11px; color: var(--text-muted); flex-shrink: 0; opacity: 0.7; }
   .item-preview {
     font-size: 12px;
     color: var(--text-muted);
@@ -227,7 +227,6 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    opacity: 0.7;
   }
   .item-row.is-folder .item-title { font-weight: 500; }
   .item-chevron {
@@ -279,6 +278,26 @@
   .save-btn:disabled { opacity: 0.4; cursor: default; }
   .save-status { font-size: 11px; color: var(--text-muted); }
   .note-rev { font-family: var(--mono); font-size: 11px; color: var(--text-muted); opacity: 0.6; user-select: none; }
+
+  /* ── conflict / save-error banner ── */
+  .conflict-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: rgba(212,167,44,0.12);
+    border-bottom: 1px solid rgba(212,167,44,0.35);
+    font-size: 12px;
+    color: #d4a72c;
+    flex-shrink: 0;
+  }
+  .conflict-banner .conflict-msg { flex: 1; }
+  .conflict-banner .btn { padding: 4px 10px; font-size: 12px; }
+  .conflict-banner.error {
+    background: rgba(224,92,92,0.1);
+    border-bottom-color: rgba(224,92,92,0.35);
+    color: var(--danger);
+  }
 
   /* ── overflow menu ── */
   .overflow-wrap { position: relative; }
@@ -602,6 +621,7 @@
         <div class="overflow-menu" id="notebook-settings-menu">
           <button id="nb-menu-rename" onclick="openRenameNotebook()">Rename notebook</button>
           <button id="nb-menu-visibility" onclick="toggleNotebookVisibility()">Make public</button>
+          <button id="nb-menu-export" onclick="exportNotebook()">Export notebook</button>
           <button id="nb-menu-delete" class="danger" onclick="deleteNotebook()">Delete notebook</button>
           <button id="nb-menu-leave" class="danger" onclick="leaveRemoteNotebook()" style="display:none">Leave notebook</button>
         </div>
@@ -631,6 +651,11 @@
           <button onclick="deleteNote();" class="danger">Delete note</button>
         </div>
       </div>
+    </div>
+    <div class="conflict-banner" id="conflict-banner" style="display:none">
+      <span class="conflict-msg" id="conflict-msg">Remote changes detected.</span>
+      <button id="conflict-keep" onclick="resolveConflictKeepMine()" class="btn btn-secondary">Keep mine</button>
+      <button id="conflict-use" onclick="resolveConflictUseRemote()" class="btn btn-secondary">Use remote</button>
     </div>
     <textarea id="editor" placeholder="Write in markdown…" oninput="onEditorInput()"></textarea>
     <div id="preview" style="display:none"></div>
@@ -712,6 +737,7 @@ async function connect() {
   await loadNotebooks();
   await loadPublished();
   await restoreSelection();
+  maybeShowDisclaimer();
 }
 
 function saveSelection() {
@@ -830,9 +856,9 @@ function handleEvent(msg) {
     else if (type?.startsWith("folder-")) loadFolders(activeNotebookId);
     else if (type?.startsWith("note-")) {
       loadNotes(activeNotebookId);
-      // If the note we are editing was updated remotely
-      if (type === "note-updated" && evt.noteId === activeNoteId && !dirty) {
-        loadNote(activeNoteId);
+      if (type === "note-updated" && evt.noteId === activeNoteId) {
+        if (dirty) showConflictBanner("Remote changes detected while you were editing.");
+        else loadNote(activeNoteId);
       }
     }
     return;
@@ -845,8 +871,9 @@ function handleEvent(msg) {
   else if (type?.startsWith("folder-")) loadFolders(activeNotebookId);
   else if (type?.startsWith("note-")) {
     loadNotes(activeNotebookId);
-    if (type === "note-updated" && data.noteId === activeNoteId && !dirty) {
-      loadNote(activeNoteId);
+    if (type === "note-updated" && data.noteId === activeNoteId) {
+      if (dirty) showConflictBanner("Remote changes detected while you were editing.");
+      else loadNote(activeNoteId);
     }
   }
 }
@@ -939,7 +966,12 @@ async function loadNote(noteId) {
 function renderNotebooks() {
   const el = document.getElementById("notebooks-list");
   el.innerHTML = "";
-  Object.values(notebooks).sort((a,b) => a.title.localeCompare(b.title)).forEach(nb => {
+  const list = Object.values(notebooks);
+  if (!list.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:20px 12px;font-size:12px">No notebooks yet.<br>Click <strong>Add notebook</strong> below.</div>';
+    return;
+  }
+  list.sort((a,b) => a.title.localeCompare(b.title)).forEach(nb => {
     const div = document.createElement("div");
     div.className = "nb-item" + (nb.id === activeNotebookId ? " active" : "");
     div.innerHTML = `<span class="nb-icon">${icon('notebook')}</span><span class="nb-name">${esc(nb.title)}</span><span class="nb-flag" title="Click to copy flag">${esc(nb.flag)}</span>`;
@@ -1076,6 +1108,137 @@ async function folderUp() {
 }
 
 // ── Import ────────────────────────────────────────────────────────────────
+// ── Export ───────────────────────────────────────────────────────────────
+function sanitizeFilename(name) {
+  return String(name).replace(/[\/\\:*?"<>|]/g, "_").replace(/^\.+$/g, "_").slice(0, 120) || "Untitled";
+}
+
+// Minimal "store" (uncompressed) ZIP encoder — no external deps.
+function crc32(data) {
+  if (!crc32.table) {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+      t[n] = c;
+    }
+    crc32.table = t;
+  }
+  let c = 0xffffffff;
+  for (let i = 0; i < data.length; i++) c = crc32.table[(c ^ data[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function buildZip(entries) {
+  const encoder = new TextEncoder();
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  for (const e of entries) {
+    const name = encoder.encode(e.name);
+    const crc = crc32(e.data);
+    const size = e.data.length;
+    const lh = new Uint8Array(30 + name.length);
+    const lv = new DataView(lh.buffer);
+    lv.setUint32(0, 0x04034b50, true);
+    lv.setUint16(4, 20, true);
+    lv.setUint16(6, 0x0800, true);
+    lv.setUint16(8, 0, true);
+    lv.setUint16(10, 0, true);
+    lv.setUint16(12, 0x21, true);
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, size, true);
+    lv.setUint32(22, size, true);
+    lv.setUint16(26, name.length, true);
+    lv.setUint16(28, 0, true);
+    lh.set(name, 30);
+    parts.push(lh, e.data);
+
+    const ch = new Uint8Array(46 + name.length);
+    const cv = new DataView(ch.buffer);
+    cv.setUint32(0, 0x02014b50, true);
+    cv.setUint16(4, 20, true);
+    cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0x0800, true);
+    cv.setUint16(10, 0, true);
+    cv.setUint16(12, 0, true);
+    cv.setUint16(14, 0x21, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, size, true);
+    cv.setUint32(24, size, true);
+    cv.setUint16(28, name.length, true);
+    cv.setUint32(42, offset, true);
+    ch.set(name, 46);
+    central.push(ch);
+
+    offset += lh.length + size;
+  }
+  const centralOffset = offset;
+  const centralSize = central.reduce((s, c) => s + c.length, 0);
+  parts.push(...central);
+
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(8, entries.length, true);
+  ev.setUint16(10, entries.length, true);
+  ev.setUint32(12, centralSize, true);
+  ev.setUint32(16, centralOffset, true);
+  parts.push(eocd);
+
+  const total = parts.reduce((s, p) => s + p.length, 0);
+  const out = new Uint8Array(total);
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+async function exportNotebook() {
+  closeNotebookSettings();
+  if (!activeNotebookId) return;
+  const nb = notebooks[activeNotebookId];
+  if (!nb) return;
+  await loadFolders(activeNotebookId);
+  await loadNotes(activeNotebookId);
+
+  const rootId = rootFolderId();
+  const pathOf = (fid) => {
+    if (!fid || fid === rootId) return "";
+    const f = folders[fid];
+    if (!f) return "";
+    const parent = pathOf(f.parentFolderId);
+    return (parent ? parent + "/" : "") + sanitizeFilename(f.name);
+  };
+
+  const encoder = new TextEncoder();
+  const used = new Set();
+  const entries = Object.values(notes).map(note => {
+    const folderPath = pathOf(note.folderId);
+    const base = sanitizeFilename(note.title || "Untitled");
+    let name = (folderPath ? folderPath + "/" : "") + base + ".md";
+    let i = 2;
+    while (used.has(name)) {
+      name = (folderPath ? folderPath + "/" : "") + base + "-" + i + ".md";
+      i++;
+    }
+    used.add(name);
+    return { name, data: encoder.encode(note.bodyMd || "") };
+  });
+
+  if (!entries.length) { alert("This notebook has no notes to export."); return; }
+
+  const zip = buildZip(entries);
+  const blob = new Blob([zip], { type: "application/zip" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = sanitizeFilename(nb.title || "notebook") + ".zip";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function triggerImport(isFolder) {
   if (!activeNotebookId) { alert("Select a notebook first"); return; }
   const input = document.createElement("input");
@@ -1325,6 +1488,7 @@ async function selectNotebook(id) {
 
 async function selectNote(id) {
   if (!await confirmDirty()) return;
+  dismissConflictBanner();
   activeNoteId = id;
   renderItems();
   const n = notes[id];
@@ -1333,6 +1497,7 @@ async function selectNote(id) {
   if (previewMode) document.getElementById("preview").innerHTML = renderMarkdown(n.bodyMd);
   savedRevision = n.revision;
   document.getElementById("note-rev").textContent = `rev ${n.revision}`;
+  document.title = `${n.title || "Untitled"} — Notes`;
   clearDirty();
   document.getElementById("overflow-wrap").style.display = "";
   saveSelection();
@@ -1370,6 +1535,7 @@ async function newNote() {
 let saveTimer = null;
 let saving = false;
 let autoCreating = false;
+let conflictActive = false;
 
 function onEditorInput() {
   // If the user starts typing with no note selected, auto-create one.
@@ -1384,7 +1550,8 @@ function onEditorInput() {
   dirty = true;
   document.getElementById("save-status").textContent = "";
   if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => autoSave(), 1500);
+  // Don't arm autoSave while a conflict is unresolved — user must resolve first
+  if (!conflictActive) saveTimer = setTimeout(() => autoSave(), 1500);
 }
 
 async function triggerAutoCreate() {
@@ -1423,7 +1590,7 @@ async function triggerAutoCreate() {
 }
 
 async function autoSave() {
-  if (!activeNoteId || !dirty || saving) return;
+  if (!activeNoteId || !dirty || saving || conflictActive) return;
   saving = true;
   const title = document.getElementById("note-title-input").value.trim() || "Untitled";
   const body = document.getElementById("editor").value;
@@ -1447,12 +1614,70 @@ async function autoSave() {
     dirty = false;
     document.getElementById("save-status").textContent = "Saved";
     document.getElementById("note-rev").textContent = `rev ${savedRevision}`;
+    document.title = `${title || "Untitled"} — Notes`;
     setTimeout(() => { if (!dirty) document.getElementById("save-status").textContent = ""; }, 2000);
     renderItems();
   } catch(e) {
     document.getElementById("save-status").textContent = "Error saving";
+    await handleSaveFailure();
   }
   saving = false;
+}
+
+// Inspect the server-side note to determine whether the save failure was
+// a revision conflict (someone else updated the note) or a transient issue.
+async function handleSaveFailure() {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  if (!activeNotebookFlag || !activeNoteId) return;
+  try {
+    const data = await scry(`/v0/notes/${activeNotebookFlag}`);
+    const remote = (data || []).find(x => x.id === activeNoteId);
+    if (remote && remote.revision > savedRevision) {
+      showConflictBanner(`Save failed — remote is now at rev ${remote.revision}. Your changes are preserved.`);
+      return;
+    }
+  } catch(_) {}
+  showConflictBanner("Save failed. Click retry, or reload from server to discard your changes.", true);
+}
+
+function showConflictBanner(msg, isError) {
+  const banner = document.getElementById("conflict-banner");
+  banner.style.display = "flex";
+  banner.classList.toggle("error", !!isError);
+  document.getElementById("conflict-msg").textContent = msg;
+  document.getElementById("conflict-keep").textContent = isError ? "Retry" : "Keep mine";
+  document.getElementById("conflict-use").textContent = isError ? "Reload" : "Use remote";
+  // Block auto-save until the user resolves
+  conflictActive = true;
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+}
+
+function dismissConflictBanner() {
+  const banner = document.getElementById("conflict-banner");
+  if (!banner) return;
+  banner.style.display = "none";
+  banner.classList.remove("error");
+  conflictActive = false;
+}
+
+async function resolveConflictKeepMine() {
+  // Force-save: bypass revision check by loading the latest rev, then saving
+  dismissConflictBanner();
+  if (!activeNoteId) return;
+  try {
+    const data = await scry(`/v0/notes/${activeNotebookFlag}`);
+    const remote = (data || []).find(x => x.id === activeNoteId);
+    if (remote) savedRevision = remote.revision;  // adopt remote rev
+  } catch(_) {}
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => autoSave(), 50);
+}
+
+async function resolveConflictUseRemote() {
+  dismissConflictBanner();
+  if (!activeNoteId) return;
+  dirty = false;
+  await loadNote(activeNoteId);
 }
 
 // keep ctrl+s as a force-save
@@ -1624,6 +1849,8 @@ function clearEditor() {
   document.getElementById("editor").value = "";
   document.getElementById("note-rev").textContent = "";
   document.getElementById("overflow-wrap").style.display = "none";
+  document.title = "Notes";
+  dismissConflictBanner();
   clearDirty();
 }
 
@@ -1632,7 +1859,23 @@ function openModal(type) {
   const box = document.getElementById("modal-box");
   const backdrop = document.getElementById("modal-backdrop");
 
-  if (type === "desktop-sync") {
+  if (type === "alpha-disclaimer") {
+    modalLocked = true;
+    box.innerHTML = `
+      <h3>Heads up — alpha software</h3>
+      <p style="font-size:13px;line-height:1.6;margin-bottom:12px;color:var(--text-muted)">
+        Notes is early-stage alpha. Bugs are very likely, and some of them could cause
+        <strong style="color:var(--text)">catastrophic, unrecoverable data loss</strong>.
+      </p>
+      <p style="font-size:13px;line-height:1.6;margin-bottom:16px;color:var(--text-muted)">
+        Keep backups of anything irreplaceable. Don't rely on this as your only copy
+        of important notes yet.
+      </p>
+      <div class="modal-actions">
+        <button class="btn btn-primary" onclick="acknowledgeDisclaimer()">I understand</button>
+      </div>
+    `;
+  } else if (type === "desktop-sync") {
     box.innerHTML = `
       <h3>Desktop sync app</h3>
       <p style="font-size:13px;color:var(--text-muted);line-height:1.5;margin-bottom:14px">
@@ -1725,7 +1968,9 @@ function openModal(type) {
   setTimeout(() => box.querySelector("input")?.focus(), 50);
 }
 
+let modalLocked = false;
 function closeModal(e) {
+  if (modalLocked) return;
   if (e && e.target !== document.getElementById("modal-backdrop")) return;
   document.getElementById("modal-backdrop").classList.remove("open");
 }
@@ -1780,6 +2025,15 @@ async function toggleNotebookVisibility() {
   // Optimistic local update
   nb.visibility = next;
   updateHeader();
+  // One-time hint the first time a notebook is made public
+  if (next === "public") {
+    try {
+      if (!localStorage.getItem("public-flag-hint")) {
+        localStorage.setItem("public-flag-hint", "1");
+        setTimeout(() => alert("Notebook is public. Share the flag shown under the notebook name in the sidebar so others can join."), 300);
+      }
+    } catch(_) {}
+  }
 }
 
 async function leaveRemoteNotebook() {
@@ -1842,6 +2096,12 @@ document.addEventListener("keydown", e => {
   if ((e.metaKey || e.ctrlKey) && e.key === "s") {
     e.preventDefault();
     if (dirty) saveNote();
+  } else if ((e.metaKey || e.ctrlKey) && e.altKey && (e.key === "n" || e.key === "N" || e.code === "KeyN")) {
+    // Cmd/Ctrl+Alt+N — browsers don't intercept this combo
+    if (activeNotebookId && activeFolderId) {
+      e.preventDefault();
+      newNote();
+    }
   }
 });
 
@@ -1861,6 +2121,19 @@ function mobileBack(to) {
 function esc(s) {
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
+const DISCLAIMER_KEY = "alpha-disclaimer-acknowledged";
+function maybeShowDisclaimer() {
+  try {
+    if (localStorage.getItem(DISCLAIMER_KEY) === "1") return;
+  } catch(_) { return; }
+  openModal("alpha-disclaimer");
+}
+function acknowledgeDisclaimer() {
+  try { localStorage.setItem(DISCLAIMER_KEY, "1"); } catch(_) {}
+  modalLocked = false;
+  document.getElementById("modal-backdrop").classList.remove("open");
+}
+
 function setConnectionState(state) {
   const el = document.getElementById("conn-label");
   if (!el) return;
