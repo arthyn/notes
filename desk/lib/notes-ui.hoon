@@ -517,6 +517,124 @@
     line-height: 1.7;
     min-height: 60vh;
   }
+
+  /* ── wiki-links ── */
+  .wiki-link {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px dashed rgba(124,106,247,0.35);
+    padding-bottom: 1px;
+    cursor: pointer;
+  }
+  .wiki-link:hover {
+    border-bottom-color: var(--accent);
+    background: rgba(124,106,247,0.08);
+  }
+  .wiki-link.unresolved {
+    color: var(--text-muted);
+    border-bottom-color: rgba(136,136,136,0.4);
+  }
+  .wiki-link.unresolved:hover {
+    color: var(--text);
+    background: rgba(136,136,136,0.1);
+  }
+
+  /* ── backlinks section ── */
+  .backlinks-section {
+    margin-top: 56px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+  .backlinks-section.position-top {
+    margin-top: 0;
+    margin-bottom: 40px;
+    padding-top: 0;
+    padding-bottom: 20px;
+    border-top: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .backlinks-header {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  .backlink-item {
+    display: block;
+    padding: 10px 0;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-item);
+  }
+  .backlink-item:last-child { border-bottom: none; }
+  .backlink-item:hover .backlink-title { color: var(--accent); }
+  .backlink-title {
+    font-size: 13.5px;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+  .backlink-path {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+  }
+  .menu-check {
+    font-family: var(--font);
+    font-size: 13px;
+    color: var(--accent);
+    opacity: 1 !important;
+  }
+
+  /* ── wiki-link autocomplete popover ── */
+  .wiki-autocomplete {
+    display: none;
+    position: fixed;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    min-width: 220px;
+    max-width: 360px;
+    max-height: 240px;
+    overflow-y: auto;
+    z-index: 180;
+    padding: 4px 0;
+    font-family: var(--font);
+  }
+  .wiki-autocomplete.open { display: block; }
+  .wiki-autocomplete-item {
+    padding: 6px 12px;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .wiki-autocomplete-item:hover,
+  .wiki-autocomplete-item.selected { background: var(--surface2); }
+  .wiki-autocomplete-item .hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: 8px;
+    font-family: var(--mono);
+  }
+  .wiki-autocomplete-empty {
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+  .wiki-autocomplete-empty kbd {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text);
+  }
   #preview h1 { font-size: 1.8em; margin: 0.5em 0 0.3em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
   #preview h2 { font-size: 1.4em; margin: 0.5em 0 0.3em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
   #preview h3 { font-size: 1.15em; margin: 0.5em 0 0.3em; }
@@ -1025,6 +1143,9 @@
           <button onclick="adjustEditorSize(1)">
             <span class="menu-icon"><span class="fs-glyph fs-glyph-lg">A</span></span>Larger text
           </button>
+          <button onclick="toggleBacklinksPosition()">
+            <span class="menu-icon menu-check" id="backlinks-top-check"></span>Backlinks at top
+          </button>
           <div class="menu-section" id="overflow-note-section" style="display:none">
             <div class="menu-divider"></div>
             <button id="publish-btn" onclick="publishNote();">
@@ -1050,6 +1171,7 @@
         <input id="note-title-input" type="text" placeholder="Untitled" oninput="onEditorInput()" />
         <textarea id="editor" placeholder="Start writing…" oninput="onEditorInput()"></textarea>
         <div id="preview" style="display:none"></div>
+        <section class="backlinks-section" id="backlinks-section" style="display:none"></section>
       </div>
     </div>
   </div>
@@ -1064,6 +1186,9 @@
     <!-- filled dynamically -->
   </div>
 </div>
+
+<!-- Wiki-link autocomplete popover, positioned near caret -->
+<div class="wiki-autocomplete" id="wiki-autocomplete"></div>
 
 <!-- Folder action popover (rename/delete), positioned via JS -->
 <div class="folder-action-menu" id="folder-action-menu">
@@ -1464,6 +1589,7 @@ async function loadNotes(notebookId) {
   notes = {};
   (data || []).forEach(n => notes[n.id] = n);
   renderItems();
+  renderBacklinks();
 }
 
 function rootFolderId() {
@@ -1975,6 +2101,7 @@ function renderMarkdown(src) {
 
 function inline(s) {
   const esc = t => t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const attr = t => esc(t).replace(/"/g, "&quot;");
   // inline code first (to protect contents)
   let result = "";
   let rest = s;
@@ -1986,6 +2113,15 @@ function inline(s) {
     rest = rest.slice(cm.index + cm[0].length);
   }
   s = result;
+  // wiki-links [[Title]] — before standard links so double brackets don't interfere
+  s = s.replace(/\[\[([^\[\]]+?)\]\]/g, (m, raw) => {
+    const target = raw.trim();
+    const note = resolveWikiLink(target);
+    if (note) {
+      return `<a class="wiki-link" data-note-id="${note.id}" href="javascript:void(0)">${esc(target)}</a>`;
+    }
+    return `<a class="wiki-link unresolved" data-wiki-target="${attr(target)}" href="javascript:void(0)">${esc(target)}</a>`;
+  });
   // images before links
   s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, "<img src=\"$2\" alt=\"$1\">");
   // links
@@ -2038,6 +2174,7 @@ async function selectNote(id) {
   clearDirty();
   document.getElementById("overflow-note-section").style.display = "";
   updateBreadcrumb();
+  renderBacklinks();
   saveSelection();
   pushRoute();
   // Update publish/unpublish button state
@@ -2240,6 +2377,341 @@ function adjustEditorSize(delta) {
 }
 
 applyEditorSize(loadEditorSize());
+applyBacklinksPosition();
+updateBacklinksCheck();
+
+// ── Wiki-links + backlinks ────────────────────────────────────────────────
+const WIKI_LINK_RE = /\[\[([^\[\]]+?)\]\]/g;
+
+function parseWikiLinks(md) {
+  const out = [];
+  if (!md) return out;
+  let m;
+  WIKI_LINK_RE.lastIndex = 0;
+  while ((m = WIKI_LINK_RE.exec(md)) !== null) {
+    out.push({ target: m[1].trim(), match: m[0], index: m.index });
+  }
+  return out;
+}
+
+function resolveWikiLink(target) {
+  if (!target) return null;
+  const t = target.toLowerCase();
+  for (const n of Object.values(notes)) {
+    if ((n.title || "").toLowerCase() === t) return n;
+  }
+  return null;
+}
+
+function folderPathForNote(n) {
+  if (!n) return "";
+  const chain = [];
+  let fid = n.folderId;
+  let safety = 20;
+  while (fid && folders[fid] && safety-- > 0) {
+    const f = folders[fid];
+    if (f.name !== "/") chain.unshift(f.name);
+    fid = f.parentFolderId;
+  }
+  return chain.length ? "/ " + chain.join(" / ") : "/";
+}
+
+async function createNoteFromWikiLink(title) {
+  if (!activeNotebookId) return;
+  // Place in the current note's folder, or the active folder, or the root.
+  let folderId = activeNoteId && notes[activeNoteId] ? notes[activeNoteId].folderId : activeFolderId;
+  if (!folderId) folderId = rootFolderId();
+  if (!folderId) return;
+  await pokeAction({
+    "create-note": { notebookId: activeNotebookId, folderId, title, bodyMd: "" }
+  });
+  setTimeout(async () => {
+    await loadNotes(activeNotebookId);
+    // Find the note we just created (most recent with matching title in that folder)
+    const candidates = Object.values(notes)
+      .filter(n => n.folderId === folderId && (n.title || "").toLowerCase() === title.toLowerCase())
+      .sort((a, b) => b.id - a.id);
+    if (candidates.length) selectNote(candidates[0].id);
+  }, 300);
+}
+
+function getBacklinksPosition() {
+  return localStorage.getItem("backlinks-position") === "top" ? "top" : "bottom";
+}
+function setBacklinksPosition(pos) {
+  localStorage.setItem("backlinks-position", pos);
+  applyBacklinksPosition();
+  updateBacklinksCheck();
+}
+function toggleBacklinksPosition() {
+  setBacklinksPosition(getBacklinksPosition() === "top" ? "bottom" : "top");
+  closeOverflow();
+}
+function updateBacklinksCheck() {
+  const check = document.getElementById("backlinks-top-check");
+  if (check) check.textContent = getBacklinksPosition() === "top" ? "✓" : "";
+}
+function applyBacklinksPosition() {
+  const wrap = document.querySelector(".editor-wrap");
+  const el = document.getElementById("backlinks-section");
+  if (!wrap || !el) return;
+  const pos = getBacklinksPosition();
+  el.classList.toggle("position-top", pos === "top");
+  if (pos === "top") {
+    // Place before the title so backlinks show first
+    wrap.insertBefore(el, wrap.firstChild);
+  } else {
+    wrap.appendChild(el);
+  }
+}
+
+function renderBacklinks() {
+  const el = document.getElementById("backlinks-section");
+  if (!el) return;
+  if (!activeNoteId || !notes[activeNoteId]) { el.style.display = "none"; return; }
+  const current = notes[activeNoteId];
+  const currentTitleLc = (current.title || "").toLowerCase();
+  if (!currentTitleLc) { el.style.display = "none"; return; }
+  const inbound = [];
+  for (const n of Object.values(notes)) {
+    if (n.id === activeNoteId) continue;
+    const links = parseWikiLinks(n.bodyMd || "");
+    if (links.some(l => l.target.toLowerCase() === currentTitleLc)) inbound.push(n);
+  }
+  if (inbound.length === 0) { el.style.display = "none"; return; }
+  el.style.display = "";
+  el.innerHTML = `
+    <div class="backlinks-header">Backlinks · ${inbound.length}</div>
+    <div class="backlinks-list">
+      ${inbound.map(n => `
+        <div class="backlink-item" data-note-id="${n.id}">
+          <div class="backlink-title">${esc(n.title || "Untitled")}</div>
+          <div class="backlink-path">${esc(folderPathForNote(n))}</div>
+        </div>
+      `).join("")}
+    </div>`;
+  el.querySelectorAll(".backlink-item").forEach(item => {
+    item.onclick = () => selectNote(parseInt(item.dataset.noteId, 10));
+  });
+}
+
+// ── Wiki-link autocomplete (on [[) ────────────────────────────────────────
+let wikiAutocompleteOpen = false;
+let wikiAutocompleteStart = -1;  // textarea index of the '[[' we're completing
+let wikiAutocompleteMatches = [];
+let wikiAutocompleteSelIdx = 0;
+
+// Measure caret position in a textarea by rendering a styled mirror div.
+function getTextareaCaretCoords(textarea) {
+  const mirror = document.createElement("div");
+  const cs = window.getComputedStyle(textarea);
+  const props = [
+    "boxSizing","width","height","overflow",
+    "borderTopWidth","borderRightWidth","borderBottomWidth","borderLeftWidth",
+    "paddingTop","paddingRight","paddingBottom","paddingLeft",
+    "fontStyle","fontVariant","fontWeight","fontStretch",
+    "fontSize","fontSizeAdjust","lineHeight","fontFamily",
+    "textAlign","textTransform","textIndent","textDecoration",
+    "letterSpacing","wordSpacing","tabSize"
+  ];
+  props.forEach(p => { mirror.style[p] = cs[p]; });
+  mirror.style.position = "absolute";
+  mirror.style.visibility = "hidden";
+  mirror.style.whiteSpace = "pre-wrap";
+  mirror.style.wordWrap = "break-word";
+  mirror.style.top = "0";
+  mirror.style.left = "-9999px";
+  document.body.appendChild(mirror);
+  const before = textarea.value.slice(0, textarea.selectionEnd);
+  mirror.textContent = before;
+  const marker = document.createElement("span");
+  marker.textContent = "\u200B";
+  mirror.appendChild(marker);
+  const taRect = textarea.getBoundingClientRect();
+  const markerRect = marker.getBoundingClientRect();
+  const mirrorRect = mirror.getBoundingClientRect();
+  document.body.removeChild(mirror);
+  return {
+    top: taRect.top + (markerRect.top - mirrorRect.top) - textarea.scrollTop,
+    left: taRect.left + (markerRect.left - mirrorRect.left) - textarea.scrollLeft,
+    lineHeight: parseFloat(cs.lineHeight) || 20
+  };
+}
+
+function checkWikiAutocomplete() {
+  const ta = document.getElementById("editor");
+  if (!ta || document.activeElement !== ta) { hideWikiAutocomplete(); return; }
+  const caret = ta.selectionStart;
+  if (caret !== ta.selectionEnd) { hideWikiAutocomplete(); return; }
+  const text = ta.value;
+  // Scan backward for an unmatched '[[' within 120 chars on the current line.
+  let open = -1;
+  for (let i = caret - 1; i >= 0 && caret - i < 120; i--) {
+    const c = text[i];
+    if (c === "\n") break;
+    if (c === "]" && text[i - 1] === "]") break;
+    if (c === "[" && text[i - 1] === "[") { open = i - 1; break; }
+  }
+  if (open < 0) { hideWikiAutocomplete(); return; }
+  const query = text.slice(open + 2, caret);
+  if (/[\[\]]/.test(query)) { hideWikiAutocomplete(); return; }
+  wikiAutocompleteStart = open;
+  showWikiAutocomplete(query);
+}
+
+function showWikiAutocomplete(query) {
+  const matches = filterNoteTitlesForWiki(query);
+  wikiAutocompleteMatches = matches;
+  wikiAutocompleteSelIdx = 0;
+  renderWikiAutocomplete(query);
+  const box = document.getElementById("wiki-autocomplete");
+  box.classList.add("open");
+  wikiAutocompleteOpen = true;
+  positionWikiAutocomplete();
+}
+
+function hideWikiAutocomplete() {
+  const box = document.getElementById("wiki-autocomplete");
+  box.classList.remove("open");
+  wikiAutocompleteOpen = false;
+  wikiAutocompleteStart = -1;
+  wikiAutocompleteMatches = [];
+}
+
+function filterNoteTitlesForWiki(query) {
+  const items = Object.values(notes)
+    .filter(n => n.id !== activeNoteId && n.title)
+    .map(n => ({ note: n, title: n.title }));
+  if (!query) {
+    items.sort((a, b) => (b.note.updatedAt || 0) - (a.note.updatedAt || 0));
+    return items.slice(0, 10);
+  }
+  const scored = items
+    .map(it => ({ ...it, score: scoreSwitcherMatch(query, it.title) }))
+    .filter(it => it.score > 0);
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, 10);
+}
+
+function renderWikiAutocomplete(query) {
+  const box = document.getElementById("wiki-autocomplete");
+  if (wikiAutocompleteMatches.length === 0) {
+    if (query) {
+      box.innerHTML = `<div class="wiki-autocomplete-empty">No match — press <kbd>↵</kbd> to link &amp; create &ldquo;${esc(query)}&rdquo;</div>`;
+    } else {
+      box.innerHTML = `<div class="wiki-autocomplete-empty">No other notes yet</div>`;
+    }
+    return;
+  }
+  box.innerHTML = wikiAutocompleteMatches.map((m, i) =>
+    `<div class="wiki-autocomplete-item${i === wikiAutocompleteSelIdx ? ' selected' : ''}" data-idx="${i}">${esc(m.title)}</div>`
+  ).join("");
+  box.querySelectorAll(".wiki-autocomplete-item").forEach(el => {
+    el.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      wikiAutocompleteSelIdx = parseInt(el.dataset.idx, 10);
+      acceptWikiAutocomplete();
+    });
+    el.addEventListener("mouseenter", () => {
+      setWikiAutocompleteSel(parseInt(el.dataset.idx, 10));
+    });
+  });
+}
+
+function setWikiAutocompleteSel(idx) {
+  if (idx < 0 || idx >= wikiAutocompleteMatches.length) return;
+  wikiAutocompleteSelIdx = idx;
+  const els = document.querySelectorAll("#wiki-autocomplete .wiki-autocomplete-item");
+  els.forEach((el, i) => el.classList.toggle("selected", i === idx));
+  if (els[idx]) els[idx].scrollIntoView({ block: "nearest" });
+}
+
+function positionWikiAutocomplete() {
+  const ta = document.getElementById("editor");
+  const box = document.getElementById("wiki-autocomplete");
+  if (!ta || !box) return;
+  const coords = getTextareaCaretCoords(ta);
+  const bh = box.offsetHeight;
+  const bw = box.offsetWidth;
+  let top = coords.top + coords.lineHeight + 4;
+  let left = coords.left;
+  if (top + bh > window.innerHeight - 8) top = coords.top - bh - 4;
+  if (left + bw > window.innerWidth - 8) left = window.innerWidth - bw - 8;
+  if (left < 8) left = 8;
+  box.style.top = top + "px";
+  box.style.left = left + "px";
+}
+
+function acceptWikiAutocomplete() {
+  const ta = document.getElementById("editor");
+  if (!ta || wikiAutocompleteStart < 0) { hideWikiAutocomplete(); return; }
+  const caret = ta.selectionStart;
+  const m = wikiAutocompleteMatches[wikiAutocompleteSelIdx];
+  let title;
+  if (m) title = m.title;
+  else {
+    // No matches: treat whatever the user typed as the link title
+    title = ta.value.slice(wikiAutocompleteStart + 2, caret).trim();
+    if (!title) { hideWikiAutocomplete(); return; }
+  }
+  const before = ta.value.slice(0, wikiAutocompleteStart);
+  const after = ta.value.slice(caret);
+  const insertion = "[[" + title + "]]";
+  ta.value = before + insertion + after;
+  const newCaret = wikiAutocompleteStart + insertion.length;
+  ta.selectionStart = ta.selectionEnd = newCaret;
+  hideWikiAutocomplete();
+  ta.focus();
+  onEditorInput();
+}
+
+document.getElementById("editor").addEventListener("keydown", (e) => {
+  if (!wikiAutocompleteOpen) return;
+  if (e.key === "ArrowDown") {
+    e.preventDefault(); e.stopPropagation();
+    setWikiAutocompleteSel(Math.min(wikiAutocompleteSelIdx + 1, wikiAutocompleteMatches.length - 1));
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault(); e.stopPropagation();
+    setWikiAutocompleteSel(Math.max(wikiAutocompleteSelIdx - 1, 0));
+  } else if (e.key === "Enter" || e.key === "Tab") {
+    e.preventDefault(); e.stopPropagation();
+    acceptWikiAutocomplete();
+  } else if (e.key === "Escape") {
+    e.preventDefault(); e.stopPropagation();
+    hideWikiAutocomplete();
+  } else if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Home" || e.key === "End") {
+    // caret movement — close and let the key proceed
+    hideWikiAutocomplete();
+  }
+});
+
+document.addEventListener("click", (e) => {
+  if (!wikiAutocompleteOpen) return;
+  if (e.target.closest("#wiki-autocomplete")) return;
+  if (e.target.closest("#editor")) return;
+  hideWikiAutocomplete();
+});
+// Close on scroll of any ancestor (editor-scroll, window)
+window.addEventListener("scroll", () => { if (wikiAutocompleteOpen) hideWikiAutocomplete(); }, true);
+document.getElementById("editor").addEventListener("click", () => {
+  if (wikiAutocompleteOpen) setTimeout(checkWikiAutocomplete, 0);
+});
+
+// Delegate clicks on wiki-links in the preview
+document.getElementById("preview").addEventListener("click", (e) => {
+  const a = e.target.closest("a.wiki-link");
+  if (!a) return;
+  e.preventDefault();
+  const noteId = a.dataset.noteId;
+  if (noteId) {
+    selectNote(parseInt(noteId, 10));
+    return;
+  }
+  const target = a.dataset.wikiTarget;
+  if (target && confirm(`Create note "${target}"?`)) {
+    createNoteFromWikiLink(target);
+  }
+});
 
 // ── Folder breadcrumb ─────────────────────────────────────────────────────
 function updateBreadcrumb() {
@@ -2338,6 +2810,7 @@ function onEditorInput() {
   if (saveTimer) clearTimeout(saveTimer);
   // Don't arm autoSave while a conflict is unresolved — user must resolve first
   if (!conflictActive) saveTimer = setTimeout(() => autoSave(), 1500);
+  checkWikiAutocomplete();
 }
 
 async function triggerAutoCreate() {
@@ -2586,6 +3059,26 @@ ${bodyHtml}
 </html>`;
 }
 
+// Rewrite wiki-links for the public HTML:
+//   - If the link resolves to a note that is also published → keep it as a
+//     real <a> pointing at the target's public URL.
+//   - Otherwise → strip the anchor and keep just the displayed text.
+function transformWikiLinksForPublish(html) {
+  return html.replace(
+    /<a class="wiki-link(?: unresolved)?"[^>]*>([\s\S]*?)<\/a>/g,
+    (match, inner) => {
+      const idMatch = match.match(/data-note-id="(\d+)"/);
+      if (idMatch) {
+        const nid = parseInt(idMatch[1], 10);
+        if (publishedIds.has(pubKey(activeNotebookFlag, nid))) {
+          return `<a href="${pubUrl(activeNotebookFlag, nid)}">${inner}</a>`;
+        }
+      }
+      return inner;
+    }
+  );
+}
+
 async function publishNote() {
   closeOverflow();
   if (!activeNoteId || !activeNotebookId) return;
@@ -2596,7 +3089,8 @@ async function publishNote() {
   if (dirty) await autoSave();
 
   const body = document.getElementById("editor").value;
-  const html = publishTemplate(n.title || "Untitled", renderMarkdown(body));
+  const rendered = transformWikiLinksForPublish(renderMarkdown(body));
+  const html = publishTemplate(n.title || "Untitled", rendered);
 
   await pokeAction({
     "publish-note": { notebookId: activeNotebookId, noteId: activeNoteId, html }
@@ -2649,6 +3143,7 @@ function clearEditor() {
   document.getElementById("note-rev").textContent = "";
   document.getElementById("overflow-note-section").style.display = "none";
   updateBreadcrumb();
+  renderBacklinks();
   document.title = "Notes";
   dismissConflictBanner();
   clearDirty();
