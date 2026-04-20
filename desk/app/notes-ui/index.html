@@ -1140,7 +1140,7 @@
     <div class="sidebar-brand">
       <svg class="icon brand-icon"><use href="#i-notebook"/></svg>
       <span class="brand-name">Notes</span>
-      <span class="sidebar-version">alpha v0.3.0</span>
+      <span class="sidebar-version">alpha v0.3.1</span>
       <button class="icon-btn sidebar-menu-btn" onclick="toggleSidebarMenu()" title="More"><svg class="icon"><use href="#i-menu"/></svg></button>
     </div>
   </div>
@@ -3069,6 +3069,8 @@ async function triggerAutoCreate() {
   }, 300);
 }
 
+let lastOwnSaveAt = 0;
+
 async function autoSave() {
   if (!activeNoteId || !dirty || saving || conflictActive) return;
   saving = true;
@@ -3079,14 +3081,18 @@ async function autoSave() {
 
   document.getElementById("save-status").textContent = "Saving\u2026";
 
+  const nb = notebooks[n.notebookId];
+  const isLocal = nb && SHIP && nb.host.replace(/^~/, "") === SHIP.replace(/^~/, "");
+  const sentRev = isLocal ? savedRevision : 0;
+  // Pre-bump savedRevision BEFORE sending so the echoed note-updated event
+  // (which may arrive before pokeAction's ack resolves) is recognized as our
+  // own save via isOwnSaveEcho's revision check.
+  const rollbackRev = savedRevision;
+  savedRevision = savedRevision + 1;
+  lastOwnSaveAt = Date.now();
+
   try {
-    // Use revision 0 (force-update) for remote notebooks where our
-    // local revision may be stale; use real revision for local notebooks
-    const nb = notebooks[n.notebookId];
-    const isLocal = nb && SHIP && nb.host.replace(/^~/, "") === SHIP.replace(/^~/, "");
-    const rev = isLocal ? savedRevision : 0;
-    await pokeAction({ "update-note": { notebookId: n.notebookId, noteId: activeNoteId, bodyMd: body, expectedRevision: rev } });
-    if (isLocal) savedRevision++;
+    await pokeAction({ "update-note": { notebookId: n.notebookId, noteId: activeNoteId, bodyMd: body, expectedRevision: sentRev } });
     if (title !== n.title) {
       await pokeAction({ "rename-note": { notebookId: n.notebookId, noteId: activeNoteId, title } });
     }
@@ -3098,6 +3104,7 @@ async function autoSave() {
     setTimeout(() => { if (!dirty) document.getElementById("save-status").textContent = ""; }, 2000);
     renderItems();
   } catch(e) {
+    savedRevision = rollbackRev;
     document.getElementById("save-status").textContent = "Error saving";
     await handleSaveFailure();
   }
@@ -3837,13 +3844,23 @@ function mobileBack(to) {
 function esc(s) {
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
-// A note-updated event we receive with a revision we already have is the
-// echo of our own save — skip it to avoid clobbering the editor mid-keystroke.
-// Real remote updates always land with a revision greater than savedRevision.
+// Pure echo-detection. Kept pure (no global access) so it's unit-testable;
+// the canonical tests live at tests/frontend/run.html — keep in sync.
+// A note-updated event is our own save echo if:
+//   (a) its revision matches or trails what we already expect after our
+//       optimistic pre-bump in autoSave (covers local-host saves), OR
+//   (b) we issued a save very recently from this ship (covers remote saves
+//       where we can't predict the host's new revision ahead of time).
+function isOwnSaveEchoPure(evt, savedRev, shipId, lastSaveAt, now) {
+  const r = evt && evt.revision;
+  if (typeof r === "number" && r <= savedRev) return true;
+  const actor = ((evt && evt.actor) || "").replace(/^~/, "");
+  const us = (shipId || "").replace(/^~/, "");
+  if (actor && us && actor === us && now - lastSaveAt < 2000) return true;
+  return false;
+}
 function isOwnSaveEcho(evt) {
-  const r = evt?.revision;
-  if (typeof r !== "number") return false;
-  return r <= savedRevision;
+  return isOwnSaveEchoPure(evt, savedRevision, SHIP, lastOwnSaveAt, Date.now());
 }
 const DISCLAIMER_KEY = "alpha-disclaimer-acknowledged";
 function maybeShowDisclaimer() {

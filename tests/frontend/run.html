@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>%notes — frontend tests</title>
+<style>
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a1a;
+    --text: #e8e8e8;
+    --muted: #888;
+    --pass: #4caf82;
+    --fail: #e05c5c;
+  }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    padding: 28px; max-width: 900px; margin: 0 auto;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 20px; font-size: 12px; }
+  .suite { margin: 22px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
+  .test { padding: 4px 0; font-family: -apple-system, monospace; font-size: 13px; }
+  .pass { color: var(--pass); }
+  .fail { color: var(--fail); }
+  pre { background: var(--surface); padding: 10px 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; margin: 4px 0 0 16px; white-space: pre-wrap; }
+  .summary {
+    margin-top: 24px; padding: 12px 14px; border-radius: 6px;
+    background: var(--surface); font-weight: 600;
+  }
+  .summary.ok { color: var(--pass); }
+  .summary.bad { color: var(--fail); }
+</style>
+</head>
+<body>
+<h1>%notes — frontend tests</h1>
+<p class="sub">Open this file directly in a browser. Pure-function unit tests only — no network, no DOM.</p>
+<div id="out"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────
+// CODE UNDER TEST — mirror of desk/app/notes-ui/index.html.
+// These are pure functions; keep copies in sync with the app.
+// ─────────────────────────────────────────────────────────────────────────
+
+// isOwnSaveEchoPure: determine whether a note-updated SSE event is the echo
+// of our own save. Used to suppress false-positive "Remote changes detected"
+// conflict banners on every edit.
+function isOwnSaveEchoPure(evt, savedRev, shipId, lastSaveAt, now) {
+  const r = evt && evt.revision;
+  if (typeof r === "number" && r <= savedRev) return true;
+  const actor = ((evt && evt.actor) || "").replace(/^~/, "");
+  const us = (shipId || "").replace(/^~/, "");
+  if (actor && us && actor === us && now - lastSaveAt < 2000) return true;
+  return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tiny runner
+// ─────────────────────────────────────────────────────────────────────────
+const out = document.getElementById("out");
+let passed = 0, failed = 0;
+
+function suite(name) {
+  const h = document.createElement("div");
+  h.className = "suite"; h.textContent = name;
+  out.appendChild(h);
+}
+function test(name, fn) {
+  try {
+    fn();
+    const el = document.createElement("div");
+    el.className = "test pass"; el.textContent = "✓ " + name;
+    out.appendChild(el);
+    passed++;
+  } catch (e) {
+    const el = document.createElement("div");
+    el.className = "test fail"; el.innerHTML = "✗ " + name;
+    const pre = document.createElement("pre");
+    pre.textContent = e.message;
+    el.appendChild(pre);
+    out.appendChild(el);
+    failed++;
+  }
+}
+function eq(actual, expected, label) {
+  if (actual !== expected) {
+    throw new Error(`${label || ""}\n  expected: ${JSON.stringify(expected)}\n  actual:   ${JSON.stringify(actual)}`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tests: isOwnSaveEchoPure
+// ─────────────────────────────────────────────────────────────────────────
+suite("isOwnSaveEchoPure — local-host saves (revision check)");
+
+// Scenario: agent bumps rev 5 → 6 on our save. After autoSave's optimistic
+// pre-bump, savedRev is 6 when the event arrives.
+test("echo matches after pre-bump (revision === savedRev)", () => {
+  const evt = { revision: 6, actor: "~sampel-palnet" };
+  eq(isOwnSaveEchoPure(evt, 6, "~sampel-palnet", 0, 1000), true);
+});
+
+test("stale echo (revision < savedRev) is still our echo", () => {
+  const evt = { revision: 4 };
+  eq(isOwnSaveEchoPure(evt, 5, "~sampel-palnet", 0, 1000), true);
+});
+
+test("genuine remote update (revision > savedRev, no recent save) → false", () => {
+  const evt = { revision: 10, actor: "~other-ship" };
+  eq(isOwnSaveEchoPure(evt, 5, "~sampel-palnet", 0, 1000), false);
+});
+
+suite("isOwnSaveEchoPure — remote-host saves (recent-own-save window)");
+
+// For remote notebooks autoSave sends expectedRevision=0 (force) so we can't
+// predict the host's new rev. We rely on a 2s window + matching actor.
+test("recent save from us, higher rev → true", () => {
+  const evt = { revision: 42, actor: "~sampel-palnet" };
+  const now = 1_000_000, lastSave = now - 500;
+  eq(isOwnSaveEchoPure(evt, 5, "~sampel-palnet", lastSave, now), true);
+});
+
+test("save window expired (>2s ago) → false", () => {
+  const evt = { revision: 42, actor: "~sampel-palnet" };
+  const now = 1_000_000, lastSave = now - 5000;
+  eq(isOwnSaveEchoPure(evt, 5, "~sampel-palnet", lastSave, now), false);
+});
+
+test("recent save, but event from a different ship → false", () => {
+  const evt = { revision: 42, actor: "~other-ship" };
+  const now = 1_000_000, lastSave = now - 500;
+  eq(isOwnSaveEchoPure(evt, 5, "~sampel-palnet", lastSave, now), false);
+});
+
+test("recent save, but event has no actor → falls through to false", () => {
+  const evt = { revision: 42 };
+  const now = 1_000_000, lastSave = now - 500;
+  eq(isOwnSaveEchoPure(evt, 5, "~sampel-palnet", lastSave, now), false);
+});
+
+suite("isOwnSaveEchoPure — normalization + edge cases");
+
+test("actor tilde stripping — actor prefixed, ship unprefixed", () => {
+  const evt = { revision: 42, actor: "~sampel-palnet" };
+  const now = 1_000_000, lastSave = now - 500;
+  eq(isOwnSaveEchoPure(evt, 5, "sampel-palnet", lastSave, now), true);
+});
+
+test("actor tilde stripping — ship prefixed, actor unprefixed", () => {
+  const evt = { revision: 42, actor: "sampel-palnet" };
+  const now = 1_000_000, lastSave = now - 500;
+  eq(isOwnSaveEchoPure(evt, 5, "~sampel-palnet", lastSave, now), true);
+});
+
+test("event missing revision AND recent save → actor window wins → true", () => {
+  const evt = { actor: "~sampel-palnet" };
+  const now = 1_000_000, lastSave = now - 500;
+  eq(isOwnSaveEchoPure(evt, 5, "~sampel-palnet", lastSave, now), true);
+});
+
+test("event missing revision AND no recent save → false", () => {
+  const evt = { actor: "~sampel-palnet" };
+  eq(isOwnSaveEchoPure(evt, 5, "~sampel-palnet", 0, 1_000_000), false);
+});
+
+test("empty ship id → actor window cannot apply, falls to rev check", () => {
+  const evt = { revision: 42, actor: "~sampel-palnet" };
+  eq(isOwnSaveEchoPure(evt, 5, "", 999_500, 1_000_000), false);
+});
+
+test("null evt does not throw (defensive)", () => {
+  eq(isOwnSaveEchoPure(null, 5, "~sampel-palnet", 999_500, 1_000_000), false);
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Summary
+// ─────────────────────────────────────────────────────────────────────────
+const sum = document.createElement("div");
+sum.className = "summary " + (failed === 0 ? "ok" : "bad");
+sum.textContent = `${passed} passed, ${failed} failed`;
+out.appendChild(sum);
+</script>
+</body>
+</html>
