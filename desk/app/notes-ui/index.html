@@ -103,10 +103,11 @@
   .sidebar-section-actions { display: flex; align-items: center; gap: 2px; }
 
   /* Collapsed sidebar — hide sidebar and its resizer, reveal expand button */
-  #sidebar-expand-btn { display: none; }
+  #sidebar-expand-btn, #sidebar-switcher-btn { display: none; }
   body.sidebar-collapsed .sidebar { display: none; }
   body.sidebar-collapsed .resizer[data-target="sidebar"] { display: none; }
-  body.sidebar-collapsed #sidebar-expand-btn { display: inline-flex; }
+  body.sidebar-collapsed #sidebar-expand-btn,
+  body.sidebar-collapsed #sidebar-switcher-btn { display: inline-flex; }
   .sidebar-list { flex: 1; overflow-y: auto; padding-bottom: 8px; min-height: 0; }
   .nb-item {
     display: flex;
@@ -263,6 +264,56 @@
   }
   .item-chevron .icon { width: 14px; height: 14px; }
   .item-row.is-folder:hover .item-chevron .icon { opacity: 0.95; }
+
+  /* Folder icon swaps to an ellipsis action on row hover */
+  .item-row.is-folder .item-icon {
+    border-radius: 3px;
+    transition: background 0.15s;
+  }
+  .item-row.is-folder .item-icon .ellipsis-glyph { display: none; }
+  .item-row.is-folder:hover .item-icon { cursor: pointer; }
+  .item-row.is-folder:hover .item-icon .folder-glyph { display: none; }
+  .item-row.is-folder:hover .item-icon .ellipsis-glyph { display: inline-flex; }
+  .item-row.is-folder:hover .item-icon:hover { background: var(--surface); }
+  .item-row.is-folder .item-icon.menu-open .folder-glyph { display: none; }
+  .item-row.is-folder .item-icon.menu-open .ellipsis-glyph { display: inline-flex; }
+  .item-row.is-folder .item-icon.menu-open { background: var(--surface); }
+
+  /* Folder action popover (rename / delete) */
+  .folder-action-menu {
+    display: none;
+    position: fixed;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    min-width: 180px;
+    white-space: nowrap;
+    z-index: 150;
+    padding: 4px 0;
+  }
+  .folder-action-menu.open { display: block; }
+  .folder-action-menu button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    background: none; border: none; cursor: pointer;
+    color: var(--text);
+    padding: 7px 12px;
+    font-size: 13px;
+    font-family: var(--font);
+  }
+  .folder-action-menu button:hover { background: var(--surface2); }
+  .folder-action-menu button.danger { color: var(--danger); }
+  .folder-action-menu button.danger:hover { background: rgba(224,92,92,0.1); }
+  .folder-action-menu .menu-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; flex-shrink: 0;
+    opacity: 0.7;
+  }
+  .folder-action-menu button:hover .menu-icon { opacity: 0.95; }
   .empty-state { padding: 24px 12px; text-align: center; color: var(--text-muted); font-size: 12px; }
   .folder-up-btn { color: var(--text-muted); }
   .folder-up-btn:hover { color: var(--text); }
@@ -305,6 +356,19 @@
     .editor-toolbar .back-btn { display: none; }
     .editor-toolbar .save-status { padding: 0 4px; }
     .editor-toolbar .note-rev { padding: 0 4px; }
+    .editor-toolbar .note-breadcrumb {
+      font-family: var(--font);
+      font-size: 11px;
+      color: var(--text-muted);
+      max-width: 320px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      direction: rtl;
+      text-align: left;
+      unicode-bidi: plaintext;
+      padding: 0 6px;
+    }
     .editor-toolbar .overflow-menu {
       top: auto;
       bottom: 100%;
@@ -511,6 +575,95 @@
   .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
   .btn-secondary:hover { border-color: var(--text-muted); }
 
+  /* ── quick switcher ── */
+  .switcher-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: none;
+    z-index: 300;
+    padding-top: 12vh;
+    justify-content: center;
+    align-items: flex-start;
+  }
+  .switcher-backdrop.open { display: flex; }
+  .switcher {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    width: 560px;
+    max-width: calc(100vw - 24px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .switcher-input-wrap {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .switcher-input-icon { width: 16px; height: 16px; opacity: 0.55; flex-shrink: 0; }
+  #switcher-input {
+    flex: 1;
+    background: none; border: none; outline: none;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 15px;
+  }
+  #switcher-input::placeholder { color: var(--text-muted); }
+  .switcher-results {
+    max-height: 420px;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+  .switcher-result {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px;
+    cursor: pointer;
+  }
+  .switcher-result.selected { background: var(--surface2); }
+  .switcher-result:hover { background: var(--surface2); }
+  .switcher-result .result-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px;
+    flex-shrink: 0;
+    opacity: 0.65;
+  }
+  .switcher-result-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  .switcher-result-label {
+    font-size: 13.5px;
+    color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .switcher-result-subtitle {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .switcher-empty {
+    padding: 20px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+  .switcher-hint {
+    padding: 7px 14px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 14px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .switcher-hint kbd {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+    margin-right: 3px;
+  }
+
   /* ── connect panel ── */
   #connect-panel {
     position: fixed; inset: 0; background: var(--bg);
@@ -569,7 +722,8 @@
     .layout { position: relative; }
     .resizer { display: none; }
     body.sidebar-collapsed .sidebar { display: flex; }
-    #sidebar-expand-btn { display: none !important; }
+    #sidebar-expand-btn,
+    #sidebar-switcher-btn { display: none !important; }
     .sidebar-section .icon-btn { display: none; }
     .sidebar, .notes-panel, .editor-panel {
       position: absolute;
@@ -658,6 +812,16 @@
     .editor-toolbar { height: 52px; padding: 0 8px; gap: 4px; }
     .save-status { font-size: 13px; }
     .note-rev { font-size: 12px; }
+    .note-breadcrumb {
+      font-family: var(--font);
+      font-size: 12px;
+      color: var(--text-muted);
+      min-width: 0;
+      max-width: 45vw;
+      overflow: hidden;
+      white-space: nowrap;
+      padding: 0 2px;
+    }
     .editor-wrap { padding: 24px 18px 72px; max-width: 100%; }
     #note-title-input { font-size: calc(var(--editor-font-size) * 1.5); margin-bottom: 16px; }
     #editor { line-height: 1.65; }
@@ -762,6 +926,14 @@
     <line x1="6.5" y1="6.5" x2="6.5" y2="11.5"/>
     <line x1="9.5" y1="6.5" x2="9.5" y2="11.5"/>
   </symbol>
+  <symbol id="i-search" viewBox="0 0 16 16">
+    <circle cx="7" cy="7" r="4.5"/>
+    <line x1="10.25" y1="10.25" x2="13.5" y2="13.5"/>
+  </symbol>
+  <symbol id="i-edit" viewBox="0 0 16 16">
+    <path d="M11 2 L14 5 L5 14 L2 14 L2 11 Z"/>
+    <line x1="10" y1="3" x2="13" y2="6"/>
+  </symbol>
 </svg>
 
 <!-- Connect panel (shown until URL + auth set) -->
@@ -779,7 +951,10 @@
   <div class="sidebar">
     <div class="sidebar-section">
       <span id="conn-label">Notebooks</span>
-      <button class="icon-btn" title="Collapse sidebar" onclick="toggleSidebar()"><svg class="icon"><use href="#i-sidebar"/></svg></button>
+      <div class="sidebar-section-actions">
+        <button class="icon-btn" title="Quick switch (⌘P)" onclick="openSwitcher()"><svg class="icon"><use href="#i-search"/></svg></button>
+        <button class="icon-btn" title="Collapse sidebar" onclick="toggleSidebar()"><svg class="icon"><use href="#i-sidebar"/></svg></button>
+      </div>
     </div>
     <div class="sidebar-list" id="notebooks-list"></div>
     <div class="sidebar-actions">
@@ -802,6 +977,7 @@
   <div class="notes-panel">
     <div class="notes-panel-header">
       <button class="icon-btn" id="sidebar-expand-btn" onclick="toggleSidebar()" title="Show sidebar"><svg class="icon"><use href="#i-sidebar"/></svg></button>
+      <button class="icon-btn" id="sidebar-switcher-btn" onclick="openSwitcher()" title="Quick switch (⌘P)"><svg class="icon"><use href="#i-search"/></svg></button>
       <button class="back-btn" onclick="mobileBack('notebooks')" title="Back to notebooks">← </button>
       <button class="icon-btn folder-up-btn" id="folder-up-btn" onclick="folderUp()" style="display:none" title="Up one folder"><svg class="icon"><use href="#i-arrow-up"/></svg></button>
       <span id="folder-label">Notes</span>
@@ -831,6 +1007,7 @@
   <div class="editor-panel">
     <div class="editor-toolbar">
       <button class="back-btn" onclick="mobileBack('notes')" title="Back to notes">← </button>
+      <span class="note-breadcrumb" id="note-breadcrumb"></span>
       <span class="spacer"></span>
       <span class="save-status" id="save-status"></span>
       <span class="note-rev" id="note-rev"></span>
@@ -883,6 +1060,28 @@
 <div class="modal-backdrop" id="modal-backdrop" onclick="closeModal(event)">
   <div class="modal" id="modal-box">
     <!-- filled dynamically -->
+  </div>
+</div>
+
+<!-- Folder action popover (rename/delete), positioned via JS -->
+<div class="folder-action-menu" id="folder-action-menu">
+  <button onclick="renameTargetFolder()"><span class="menu-icon"><svg class="icon"><use href="#i-edit"/></svg></span>Rename folder</button>
+  <button onclick="deleteTargetFolder()" class="danger"><span class="menu-icon"><svg class="icon"><use href="#i-trash"/></svg></span>Delete folder</button>
+</div>
+
+<!-- Quick switcher -->
+<div class="switcher-backdrop" id="switcher-backdrop" onclick="onSwitcherBackdropClick(event)">
+  <div class="switcher" onclick="event.stopPropagation()">
+    <div class="switcher-input-wrap">
+      <svg class="icon switcher-input-icon"><use href="#i-search"/></svg>
+      <input id="switcher-input" type="text" placeholder="Jump to notebook, folder, or note…" autocomplete="off" spellcheck="false" />
+    </div>
+    <div class="switcher-results" id="switcher-results"></div>
+    <div class="switcher-hint">
+      <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+      <span><kbd>↵</kbd> open</span>
+      <span><kbd>esc</kbd> close</span>
+    </div>
   </div>
 </div>
 
@@ -1380,12 +1579,19 @@ function renderItems() {
     const div = document.createElement("div");
     div.className = "item-row is-folder";
     div.innerHTML = `
-      <span class="item-icon">${icon('folder')}</span>
+      <span class="item-icon" data-folder-id="${f.id}">
+        <svg class="icon folder-glyph"><use href="#i-folder"/></svg>
+        <svg class="icon ellipsis-glyph"><use href="#i-ellipsis"/></svg>
+      </span>
       <div class="item-body">
         <div class="item-title">${esc(f.name)}</div>
       </div>
       <span class="item-chevron">${icon('chevron-right')}</span>
     `;
+    div.querySelector(".item-icon").addEventListener("click", (e) => {
+      e.stopPropagation();
+      openFolderActionMenu(f, e.currentTarget);
+    });
     div.onclick = () => navigateToFolder(f.id);
     el.appendChild(div);
   });
@@ -1829,6 +2035,7 @@ async function selectNote(id) {
   document.title = `${n.title || "Untitled"} — Notes`;
   clearDirty();
   document.getElementById("overflow-note-section").style.display = "";
+  updateBreadcrumb();
   saveSelection();
   pushRoute();
   // Update publish/unpublish button state
@@ -1838,6 +2045,166 @@ async function selectNote(id) {
   document.getElementById("view-published-btn").style.display = isPublished ? "" : "none";
   if (isMobile()) mobileSetView("editor");
 }
+
+// ── Quick switcher ────────────────────────────────────────────────────────
+let switcherItems = [];
+let switcherFiltered = [];
+let switcherSelIdx = 0;
+let switcherBuilding = false;
+
+function switcherOpen() { return document.getElementById("switcher-backdrop").classList.contains("open"); }
+
+async function openSwitcher() {
+  if (switcherOpen()) return;
+  document.getElementById("switcher-backdrop").classList.add("open");
+  const input = document.getElementById("switcher-input");
+  input.value = "";
+  renderSwitcherResults("");
+  input.focus();
+  // Build/refresh the index in the background; re-render when it lands.
+  if (!switcherBuilding) {
+    switcherBuilding = true;
+    await buildSwitcherIndex();
+    switcherBuilding = false;
+    if (switcherOpen()) renderSwitcherResults(input.value);
+  }
+}
+
+function closeSwitcher() {
+  document.getElementById("switcher-backdrop").classList.remove("open");
+  switcherSelIdx = 0;
+}
+
+function onSwitcherBackdropClick(e) {
+  if (e.target.id === "switcher-backdrop") closeSwitcher();
+}
+
+async function buildSwitcherIndex() {
+  const items = [];
+  const nbs = Object.values(notebooks);
+  // Always include notebooks immediately — fast path.
+  for (const nb of nbs) {
+    items.push({
+      kind: "notebook",
+      label: nb.title || "Untitled notebook",
+      subtitle: nb.flag,
+      navigate: () => selectNotebook(nb.id)
+    });
+  }
+  // Fetch folders + notes for every notebook in parallel.
+  await Promise.all(nbs.map(async (nb) => {
+    const flag = nb.flag;
+    let fdata = [], ndata = [];
+    try { [fdata, ndata] = await Promise.all([
+      scry(`/v0/folders/${flag}`),
+      scry(`/v0/notes/${flag}`)
+    ]); } catch (_) { return; }
+    const foldersByNb = {};
+    (fdata || []).forEach(f => foldersByNb[f.id] = f);
+    const nbName = nb.title || "Untitled notebook";
+    (fdata || []).forEach(f => {
+      if (f.name === "/") return;
+      items.push({
+        kind: "folder",
+        label: f.name,
+        subtitle: nbName,
+        navigate: async () => { await selectNotebook(nb.id); navigateToFolder(f.id); }
+      });
+    });
+    (ndata || []).forEach(n => {
+      const f = foldersByNb[n.folderId];
+      const folderPart = f && f.name !== "/" ? ` · ${f.name}` : "";
+      items.push({
+        kind: "note",
+        label: n.title || "Untitled",
+        subtitle: nbName + folderPart,
+        navigate: async () => { await selectNotebook(nb.id); await selectNote(n.id); }
+      });
+    });
+  }));
+  switcherItems = items;
+}
+
+function scoreSwitcherMatch(query, target) {
+  if (!query) return 1;  // no query: all items tie, original order wins
+  const q = query.toLowerCase();
+  const t = target.toLowerCase();
+  const idx = t.indexOf(q);
+  if (idx >= 0) return 1000 - idx - (t.length - q.length) * 0.1;
+  // Subsequence match with streak bonus
+  let qi = 0, score = 0, streak = 0, lastMatch = -2;
+  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
+    if (t[ti] === q[qi]) {
+      qi++;
+      if (ti === lastMatch + 1) streak++; else streak = 0;
+      score += 1 + streak * 2;
+      // small bonus for word-boundary matches
+      if (ti === 0 || /[\s\/\-_]/.test(t[ti-1])) score += 2;
+      lastMatch = ti;
+    }
+  }
+  return qi === q.length ? score : -1;
+}
+
+function renderSwitcherResults(query) {
+  const root = document.getElementById("switcher-results");
+  const scored = [];
+  for (const item of switcherItems) {
+    const s = scoreSwitcherMatch(query, item.label);
+    if (s > 0) scored.push({ item, score: s });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  switcherFiltered = scored.slice(0, 40).map(x => x.item);
+  switcherSelIdx = 0;
+
+  if (switcherFiltered.length === 0) {
+    root.innerHTML = `<div class="switcher-empty">${switcherItems.length === 0 && switcherBuilding ? "Loading…" : "No matches"}</div>`;
+    return;
+  }
+  const iconFor = (k) => k === "notebook" ? "notebook" : (k === "folder" ? "folder" : "doc");
+  root.innerHTML = switcherFiltered.map((it, i) =>
+    `<div class="switcher-result${i === 0 ? ' selected' : ''}" data-idx="${i}">
+       <span class="result-icon">${icon(iconFor(it.kind))}</span>
+       <span class="switcher-result-text">
+         <span class="switcher-result-label">${esc(it.label)}</span>
+         ${it.subtitle ? `<span class="switcher-result-subtitle">${esc(it.subtitle)}</span>` : ""}
+       </span>
+     </div>`
+  ).join("");
+  root.querySelectorAll(".switcher-result").forEach(el => {
+    el.addEventListener("click", () => {
+      switcherSelIdx = parseInt(el.dataset.idx, 10);
+      selectSwitcherResult();
+    });
+    el.addEventListener("mouseenter", () => setSwitcherSelection(parseInt(el.dataset.idx, 10)));
+  });
+}
+
+function setSwitcherSelection(idx) {
+  const els = document.querySelectorAll("#switcher-results .switcher-result");
+  if (idx < 0 || idx >= els.length) return;
+  switcherSelIdx = idx;
+  els.forEach((el, i) => el.classList.toggle("selected", i === idx));
+  const target = els[idx];
+  if (target) target.scrollIntoView({ block: "nearest" });
+}
+
+function selectSwitcherResult() {
+  const item = switcherFiltered[switcherSelIdx];
+  if (!item) return;
+  closeSwitcher();
+  item.navigate();
+}
+
+document.getElementById("switcher-input").addEventListener("input", (e) => {
+  renderSwitcherResults(e.target.value);
+});
+document.getElementById("switcher-input").addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown") { e.preventDefault(); setSwitcherSelection(Math.min(switcherSelIdx + 1, switcherFiltered.length - 1)); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); setSwitcherSelection(Math.max(switcherSelIdx - 1, 0)); }
+  else if (e.key === "Enter") { e.preventDefault(); selectSwitcherResult(); }
+  else if (e.key === "Escape") { e.preventDefault(); closeSwitcher(); }
+});
 
 // ── Zen mode ──────────────────────────────────────────────────────────────
 function setZen(on) {
@@ -1871,6 +2238,48 @@ function adjustEditorSize(delta) {
 }
 
 applyEditorSize(loadEditorSize());
+
+// ── Folder breadcrumb ─────────────────────────────────────────────────────
+function updateBreadcrumb() {
+  const el = document.getElementById("note-breadcrumb");
+  if (!el) return;
+  if (!activeNoteId || !notes[activeNoteId]) { el.textContent = ""; el.dataset.full = ""; return; }
+  const n = notes[activeNoteId];
+  const chain = [];
+  let fid = n.folderId;
+  let safety = 20;
+  while (fid && folders[fid] && safety-- > 0) {
+    const f = folders[fid];
+    if (f.name !== "/") chain.unshift(f.name);
+    fid = f.parentFolderId;
+  }
+  const full = chain.length ? "/ " + chain.join(" / ") : "/";
+  el.dataset.full = full;
+  el.textContent = full;
+  // On mobile, JS-truncate from the left so the deepest folder stays visible
+  // and the text remains left-aligned (CSS ellipsis can't combine both).
+  if (window.innerWidth <= 640) requestAnimationFrame(() => truncateBreadcrumbLeft(el));
+}
+
+function truncateBreadcrumbLeft(el) {
+  const full = el.dataset.full || "";
+  if (!full) return;
+  el.textContent = full;
+  if (el.scrollWidth <= el.clientWidth) return;
+  // Binary search for the longest suffix that fits with a leading ellipsis.
+  let lo = 0, hi = full.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    el.textContent = "…" + full.slice(mid);
+    if (el.scrollWidth <= el.clientWidth) hi = mid;
+    else lo = mid + 1;
+  }
+  el.textContent = "…" + full.slice(lo);
+}
+window.addEventListener("resize", () => {
+  const el = document.getElementById("note-breadcrumb");
+  if (el && window.innerWidth <= 640) truncateBreadcrumbLeft(el);
+});
 
 // ── Editor autosize ──────────────────────────────────────────────────────
 // The textarea lives inside .editor-scroll and does not scroll itself —
@@ -2237,6 +2646,7 @@ function clearEditor() {
   autosizeEditor();
   document.getElementById("note-rev").textContent = "";
   document.getElementById("overflow-note-section").style.display = "none";
+  updateBreadcrumb();
   document.title = "Notes";
   dismissConflictBanner();
   clearDirty();
@@ -2330,6 +2740,20 @@ function openModal(type) {
       </div>
     `;
     box.querySelector("#m-title").addEventListener("keydown", e => { if (e.key==="Enter") renameNotebook(); });
+  } else if (type === "rename-folder") {
+    if (!pendingFolderEdit) return;
+    box.innerHTML = `
+      <h3>Rename Folder</h3>
+      <input id="m-name" type="text" value="${esc(pendingFolderEdit.name)}" autofocus />
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitRenameFolder()">Rename</button>
+      </div>
+    `;
+    const input = box.querySelector("#m-name");
+    input.addEventListener("keydown", e => { if (e.key==="Enter") submitRenameFolder(); });
+    // Select just the name without extension-like tail if present
+    setTimeout(() => input.select(), 0);
   } else if (type === "new-folder") {
     if (!activeNotebookId) { alert("Select a notebook first"); return; }
     const rootId = rootFolderId();
@@ -2383,6 +2807,86 @@ async function renameNotebook() {
   document.getElementById("modal-backdrop").classList.remove("open");
   await pokeAction({ "rename-notebook": { notebookId: activeNotebookId, title } });
   setTimeout(() => loadNotebooks(), 300);
+}
+
+// ── Folder actions (rename / delete) ─────────────────────────────────────
+let folderActionTarget = null;       // folder object
+let folderActionAnchor = null;       // DOM element opened from
+
+function openFolderActionMenu(folder, anchorEl) {
+  closeFolderActionMenu();
+  folderActionTarget = folder;
+  folderActionAnchor = anchorEl;
+  anchorEl.classList.add("menu-open");
+  const menu = document.getElementById("folder-action-menu");
+  const rect = anchorEl.getBoundingClientRect();
+  // Position just below the icon, left-aligned with it; flip up if it would overflow.
+  menu.classList.add("open");
+  const menuRect = menu.getBoundingClientRect();
+  const belowOverflows = rect.bottom + 6 + menuRect.height > window.innerHeight;
+  menu.style.top = (belowOverflows
+    ? rect.top - 6 - menuRect.height
+    : rect.bottom + 6) + "px";
+  menu.style.left = rect.left + "px";
+}
+
+function closeFolderActionMenu() {
+  const menu = document.getElementById("folder-action-menu");
+  menu.classList.remove("open");
+  if (folderActionAnchor) folderActionAnchor.classList.remove("menu-open");
+  folderActionTarget = null;
+  folderActionAnchor = null;
+}
+
+document.addEventListener("click", (e) => {
+  if (!document.getElementById("folder-action-menu")?.classList.contains("open")) return;
+  if (e.target.closest(".folder-action-menu")) return;
+  if (e.target.closest(".item-icon[data-folder-id]")) return;
+  closeFolderActionMenu();
+});
+window.addEventListener("resize", closeFolderActionMenu);
+window.addEventListener("scroll", closeFolderActionMenu, true);
+
+function renameTargetFolder() {
+  if (!folderActionTarget) return;
+  const f = folderActionTarget;
+  closeFolderActionMenu();
+  pendingFolderEdit = f;
+  openModal("rename-folder");
+}
+
+async function deleteTargetFolder() {
+  if (!folderActionTarget) return;
+  const f = folderActionTarget;
+  closeFolderActionMenu();
+  const childCount = Object.values(folders).filter(x => x.parentFolderId === f.id).length
+                   + Object.values(notes).filter(n => n.folderId === f.id).length;
+  const detail = childCount > 0
+    ? ` This will also delete ${childCount} item${childCount === 1 ? "" : "s"} inside it.`
+    : "";
+  if (!confirm(`Delete folder "${f.name}"?${detail} This cannot be undone.`)) return;
+  await pokeAction({
+    "delete-folder": { notebookId: activeNotebookId, folderId: f.id, recursive: true }
+  });
+  // If we were inside this folder (or a descendant), navigate up to root
+  if (activeFolderId === f.id) navigateToFolder(rootFolderId());
+  setTimeout(async () => {
+    await loadFolders(activeNotebookId);
+    await loadNotes(activeNotebookId);
+  }, 300);
+}
+
+let pendingFolderEdit = null;
+async function submitRenameFolder() {
+  const name = document.getElementById("m-name")?.value?.trim();
+  if (!name || !pendingFolderEdit) return;
+  const f = pendingFolderEdit;
+  document.getElementById("modal-backdrop").classList.remove("open");
+  await pokeAction({
+    "rename-folder": { notebookId: activeNotebookId, folderId: f.id, name }
+  });
+  pendingFolderEdit = null;
+  setTimeout(() => loadFolders(activeNotebookId), 300);
 }
 
 async function deleteNotebook() {
@@ -2500,6 +3004,11 @@ async function createFolder() {
 
 // ── Keyboard shortcuts ────────────────────────────────────────────────────
 document.addEventListener("keydown", e => {
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === "p" || e.key === "P" || e.key === "e" || e.key === "E")) {
+    e.preventDefault();
+    if (switcherOpen()) closeSwitcher(); else openSwitcher();
+    return;
+  }
   if (e.key === "Escape" && document.body.classList.contains("zen-mode")) {
     e.preventDefault();
     setZen(false);
