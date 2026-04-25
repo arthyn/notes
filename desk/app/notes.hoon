@@ -2,7 +2,8 @@
 ::
 /-  notes
 /+  default-agent, dbug, verb, notes-json
-/=  index  /lib/notes-ui
+/=  index        /lib/notes-ui
+/=  share-page   /lib/notes-share
 ::
 |%
 +$  card  card:agent:gall
@@ -77,7 +78,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'invite-poke-ack-wire-v12'
+++  dummy  'share-page-route-v13'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -161,10 +162,26 @@
       ?:  =(0 u.nid-u)  ~
       =/  =flag:notes  [u.ship-u i.t.pax]
       (~(get by published.state) [flag u.nid-u])
-    ::  serve published note or the UI
+    ::  check if this is a share-redirect request: /notes/share/~ship/name
+    ::  the page is static — it discovers the visitor's ship URL on the
+    ::  client and redirects to <visitor-ship>/notes/?notebook=...
+    =/  share-html=(unit @t)
+      ?.  =("/notes/share/" (scag 13 url-tape))  ~
+      =/  rest=tape  (slag 13 url-tape)
+      =/  path-only=tape
+        =/  qi=(unit @ud)  (find "?" rest)
+        ?~  qi  rest
+        (scag u.qi rest)
+      =/  pax=path  (stab (crip (weld "/" path-only)))
+      ?.  ?=([@ @ ~] pax)  ~
+      ?~  (slaw %p i.pax)  ~
+      `share-page
+    ::  serve published note, share page, or the UI
     =/  data=octs
       ?^  pub-html
         [(met 3 u.pub-html) u.pub-html]
+      ?^  share-html
+        [(met 3 u.share-html) u.share-html]
       [(met 3 index) index]
     =/  headers=(list [key=@t value=@t])
       :~  ['content-type' 'text/html']

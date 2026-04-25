@@ -1363,6 +1363,7 @@
             <button id="nb-menu-rename" onclick="openRenameNotebook()">Rename notebook</button>
             <button id="nb-menu-visibility" onclick="toggleNotebookVisibility()">Make public</button>
             <button id="nb-menu-copy-flag" onclick="copyActiveFlag()">Copy notebook ID</button>
+            <button id="nb-menu-copy-share" onclick="copyShareLink()">Copy share link</button>
             <button class="nb-menu-import" id="nb-menu-import-files" onclick="closeNotebookSettings(); triggerImport(false)">Import files</button>
             <button class="nb-menu-import" id="nb-menu-import-folder" onclick="closeNotebookSettings(); triggerImport(true)">Import folder</button>
             <button id="nb-menu-export" onclick="exportNotebook()">Export notebook</button>
@@ -4280,6 +4281,29 @@ async function toggleNotebookVisibility() {
         setTimeout(() => alert("Notebook is public. Share the flag shown under the notebook name in the sidebar so others can join."), 300);
       }
     } catch(_) {}
+  }
+}
+
+async function copyShareLink() {
+  closeNotebookSettings();
+  if (!activeNotebookFlag) return;
+  // Build /notes/share/<host>/<name> on this ship's URL. Recipients can
+  // open the link from anywhere; the page asks for their own ship URL
+  // and redirects there.
+  const parts = activeNotebookFlag.split("/");
+  const host = parts[0];
+  const name = parts.slice(1).join("/");
+  const link = `${BASE_URL}/notes/share/${encodeURIComponent(host)}/${encodeURIComponent(name)}`;
+  try {
+    await navigator.clipboard.writeText(link);
+    const el = document.getElementById("save-status");
+    if (el) {
+      const prev = el.textContent;
+      el.textContent = "Share link copied";
+      setTimeout(() => { if (el.textContent === "Share link copied") el.textContent = prev; }, 1500);
+    }
+  } catch(_) {
+    prompt("Share link:", link);
   }
 }
 
