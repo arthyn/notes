@@ -1340,7 +1340,7 @@
       <svg class="icon brand-icon"><use href="#i-notebook"/></svg>
       <div class="brand-text">
         <span class="brand-name">Notes</span>
-        <span class="sidebar-version">alpha v0.6.0</span>
+        <span class="sidebar-version">alpha v0.7.0</span>
       </div>
       <button class="icon-btn sidebar-menu-btn" onclick="toggleSidebarMenu()" title="More"><svg class="icon"><use href="#i-menu"/></svg></button>
     </div>
@@ -3685,6 +3685,11 @@ async function autoSave() {
     document.title = `${title || "Untitled"} — Notes`;
     setTimeout(() => { if (!dirty) document.getElementById("save-status").textContent = ""; }, 2000);
     renderItems();
+    // If this note is published, refresh the public copy in the background
+    // so the URL doesn't go stale. Fire-and-forget; failures are silent.
+    if (publishedIds.has(pubKey(activeNotebookFlag, activeNoteId))) {
+      publishCurrentNoteHtml();
+    }
   } catch(e) {
     savedRevision = rollbackRev;
     document.getElementById("save-status").textContent = "Error saving";
@@ -3888,29 +3893,39 @@ function transformWikiLinksForPublish(html) {
   );
 }
 
-async function publishNote() {
-  closeOverflow();
-  if (!activeNoteId || !activeNotebookId) return;
+// Render and ship the current note to the publish-note action. Used both
+// by the manual "Publish to web" button and by the auto-republish-on-save
+// path. Returns true on success.
+async function publishCurrentNoteHtml() {
+  if (!activeNoteId || !activeNotebookId) return false;
   const n = notes[activeNoteId];
-  if (!n) return;
-
-  // Save first if dirty
-  if (dirty) await autoSave();
-
+  if (!n) return false;
   const body = document.getElementById("editor").value;
   const rendered = transformWikiLinksForPublish(renderMarkdown(body));
   const html = publishTemplate(n.title || "Untitled", rendered);
+  try {
+    await pokeAction({
+      "publish-note": { notebookId: activeNotebookId, noteId: activeNoteId, html }
+    });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
 
-  await pokeAction({
-    "publish-note": { notebookId: activeNotebookId, noteId: activeNoteId, html }
-  });
+async function publishNote() {
+  closeOverflow();
+  if (!activeNoteId || !activeNotebookId) return;
 
-  const url = pubUrl(activeNotebookFlag, activeNoteId);
+  // Save first if dirty
+  if (dirty) await autoSave();
+  if (!(await publishCurrentNoteHtml())) return;
+
   publishedIds.add(pubKey(activeNotebookFlag, activeNoteId));
   document.getElementById("publish-btn").style.display = "none";
   document.getElementById("unpublish-btn").style.display = "";
   document.getElementById("view-published-btn").style.display = "";
-  window.open(url, '_blank');
+  window.open(pubUrl(activeNotebookFlag, activeNoteId), '_blank');
 }
 
 async function unpublishNote() {
