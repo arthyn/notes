@@ -1956,7 +1956,7 @@ async function joinRemoteAndWait(flag) {
   const ship = parts[0].startsWith("~") ? parts[0] : "~" + parts[0];
   const name = parts.slice(1).join("/");
   try {
-    await pokeAction({ "join-remote": { ship, name } });
+    await pokeTopLevel({ type: "join", ship, name });
   } catch (e) {
     return null;
   }
@@ -2036,12 +2036,46 @@ async function poke(actions) {
   }
 }
 
+// ── Nested ACUR poke helpers ──────────────────────────────────────────────
+// These helpers build the nested action envelope for the new ACUR types.
+// Top-level verbs (create-notebook, join, leave, accept-invite, decline-invite)
+// are passed through as bare objects. Notebook-scoped actions go via
+// { type: "notebook", flag: "~ship/name", action: inner }.
+//
+// Usage:
+//   pokeTopLevel({ type: "create-notebook", title })
+//   pokeNotebook({ type: "rename", title })
+//   pokeFolderAction(folderId, { type: "rename", name })
+//   pokeNoteAction(noteId, { type: "update", body, expectedRevision })
+
+async function pokeTopLevel(action) {
+  const id = msgId++;
+  await poke([{
+    id, action: "poke",
+    ship: SHIP.replace("~",""),
+    app: "notes",
+    mark: "notes-action",
+    json: action
+  }]);
+}
+
+async function pokeNotebook(nbAction) {
+  if (!activeNotebookFlag) return;
+  await pokeTopLevel({ type: "notebook", flag: activeNotebookFlag, action: nbAction });
+}
+
+async function pokeFolderAction(folderId, folderAction) {
+  await pokeNotebook({ type: "folder", id: folderId, action: folderAction });
+}
+
+async function pokeNoteAction(noteId, noteAction) {
+  await pokeNotebook({ type: "note", id: noteId, action: noteAction });
+}
+
+// Legacy pokeAction: kept for compatibility; routes notebook-scoped or top-level
+// based on the action type key.
 async function pokeAction(action) {
   const id = msgId++;
-  // Include _flag for unambiguous notebook routing across ships
-  if (activeNotebookFlag) {
-    action._flag = activeNotebookFlag;
-  }
   await poke([{
     id, action: "poke",
     ship: SHIP.replace("~",""),
@@ -2070,27 +2104,96 @@ async function scry(path) {
 }
 
 // ── Event Handling ────────────────────────────────────────────────────────
+// Handles both the new nested r-notes shape and the /v0/inbox/stream events.
+//
+// r-notes shapes (from /stream subscription):
+//   %snapshot → { type: "snapshot", host, flagName, visibility }
+//   %update   → { type: "update", host, flagName, time, update: u-notebook-json }
+//
+// u-notebook-json types:
+//   notebook-created, notebook-updated, notebook-deleted,
+//   notebook-visibility-changed, member-joined, member-left,
+//   invite-received, invite-removed,
+//   folder-update → { type: "folder-update", folderUpdate: { type: "folder-{created|updated|deleted}", ... } }
+//   note-update   → { type: "note-update",   noteUpdate:   { type: "note-{created|updated|deleted|published|unpublished|history-archived}", ... } }
+
+function applyNotebookUpdate(u) {
+  const type = u.type;
+  if (!type) return;
+  if (type === "notebook-created" || type === "notebook-updated" || type === "notebook-visibility-changed") {
+    loadNotebooks();
+  } else if (type === "notebook-deleted") {
+    // notebookId is now not directly in the update; reload sidebar
+    loadNotebooks();
+  } else if (type === "member-joined" || type === "member-left") {
+    // membership changed — nothing to reload in UI unless we have a members panel open
+  } else if (type === "invite-received" || type === "invite-removed") {
+    applyInboxEvent(u);
+  } else if (type === "folder-update") {
+    applyFolderUpdate(u.folderUpdate);
+  } else if (type === "note-update") {
+    applyNoteUpdate(u.noteUpdate);
+  }
+}
+
+function applyFolderUpdate(fu) {
+  if (!fu) return;
+  loadFolders(activeNotebookId);
+}
+
+function applyNoteUpdate(nu) {
+  if (!nu) return;
+  const type = nu.type;
+  if (type === "note-history-archived") {
+    // nu.revision is the archived note-revision object (from u-note %history-archived)
+    if (nu.revision) applyArchivedRevision({ revision: nu.revision, noteId: nu.id });
+    return;
+  }
+  loadNotes(activeNotebookId);
+  if (type === "note-updated" && nu.id === activeNoteId) {
+    const noteData = nu.note;
+    if (noteData && !isOwnSaveEcho({ updatedBy: noteData.updatedBy, revision: noteData.revision })) {
+      if (dirty) showConflictBanner("Remote changes detected while you were editing.");
+      else loadNote(activeNoteId);
+    }
+  }
+}
+
 function handleEvent(msg) {
   if (!msg.json) return;
   const data = msg.json;
 
-  // Handle response envelope from /stream subscription
+  // New nested r-notes envelope
+  if (data.type === "snapshot") {
+    loadNotebooks();
+    return;
+  }
+  if (data.type === "update") {
+    const u = data.update;
+    applyNotebookUpdate(u);
+    return;
+  }
+
+  // Inbox events arrive with their own type directly (not wrapped in r-notes)
+  if (data.type === "invite-received" || data.type === "invite-removed" || data.type === "notebooks-changed") {
+    applyInboxEvent(data);
+    return;
+  }
+
+  // Legacy response envelope fallback (old r-notes shape)
   if (data.response === "snapshot") {
-    // Full reload on snapshot
     loadNotebooks();
     return;
   }
   if (data.response === "update") {
     const evt = data.update;
-    const type = evt.type;
-    // Inbox events (received on /v0/inbox/stream) — route to handler.
+    const type = evt?.type;
     if (type === "invite-received" || type === "invite-removed" || type === "notebooks-changed") {
       applyInboxEvent(evt);
       return;
     }
-    // Reload relevant data on events
     if (type === "notebook-created" || type === "notebook-renamed" || type === "notebook-visibility-changed") loadNotebooks();
-    else if (type === "notebook-deleted") handleNotebookDeleted(evt.notebookId);
+    else if (type === "notebook-deleted") loadNotebooks();
     else if (type?.startsWith("folder-")) loadFolders(activeNotebookId);
     else if (type === "note-revision-archived") applyArchivedRevision(evt);
     else if (type?.startsWith("note-")) {
@@ -2103,10 +2206,10 @@ function handleEvent(msg) {
     return;
   }
 
-  // Fallback: try handling as a raw event (backwards compat)
+  // Bare event fallback
   const type = data.type;
   if (type === "notebook-created" || type === "notebook-renamed" || type === "notebook-visibility-changed") loadNotebooks();
-  else if (type === "notebook-deleted") handleNotebookDeleted(data.notebookId);
+  else if (type === "notebook-deleted") loadNotebooks();
   else if (type?.startsWith("folder-")) loadFolders(activeNotebookId);
   else if (type === "note-revision-archived") applyArchivedRevision(data);
   else if (type?.startsWith("note-")) {
@@ -2189,7 +2292,7 @@ async function acceptInvite(flag) {
   const parts = flag.split("/");
   const ship = parts[0].startsWith("~") ? parts[0] : "~" + parts[0];
   const name = parts.slice(1).join("/");
-  await pokeAction({ "accept-invite": { ship, name } });
+  await pokeTopLevel({ type: "accept-invite", ship, name });
   // The agent will emit a notebooks-changed fact on /v0/inbox/stream once
   // the host's snapshot lands, which triggers loadNotebooks. Belt-and-
   // suspenders: also fall back to a single delayed reload in case the SSE
@@ -2201,7 +2304,7 @@ async function declineInvite(flag) {
   const parts = flag.split("/");
   const ship = parts[0].startsWith("~") ? parts[0] : "~" + parts[0];
   const name = parts.slice(1).join("/");
-  await pokeAction({ "decline-invite": { ship, name } });
+  await pokeTopLevel({ type: "decline-invite", ship, name });
 }
 
 function renderInvites() {
@@ -2623,12 +2726,10 @@ function triggerImport(isFolder) {
         const title = file.name.replace(/\.(md|txt|markdown|text)$/i, "");
         node.push({ title, bodyMd: text });
       }
-      await pokeAction({
-        "batch-import-tree": {
-          notebookId: activeNotebookId,
-          parentFolderId: folderId,
-          tree: tree
-        }
+      await pokeNotebook({
+        type: "batch-import-tree",
+        parent: folderId,
+        tree: tree
       });
     } else {
       const noteItems = [];
@@ -2637,12 +2738,10 @@ function triggerImport(isFolder) {
         const title = file.name.replace(/\.(md|txt|markdown|text)$/i, "");
         noteItems.push({ title, bodyMd: text });
       }
-      await pokeAction({
-        "batch-import": {
-          notebookId: activeNotebookId,
-          folderId: folderId,
-          notes: noteItems
-        }
+      await pokeNotebook({
+        type: "batch-import",
+        folder: folderId,
+        notes: noteItems.map(n => ({ title: n.title, body: n.bodyMd }))
       });
     }
 
@@ -3290,9 +3389,7 @@ async function createNoteFromWikiLink(title) {
   let folderId = activeNoteId && notes[activeNoteId] ? notes[activeNoteId].folderId : activeFolderId;
   if (!folderId) folderId = rootFolderId();
   if (!folderId) return;
-  await pokeAction({
-    "create-note": { notebookId: activeNotebookId, folderId, title, bodyMd: "" }
-  });
+  await pokeNotebook({ type: "create-note", folder: folderId, title, body: "" });
   setTimeout(async () => {
     await loadNotes(activeNotebookId);
     // Find the note we just created (most recent with matching title in that folder)
@@ -3894,9 +3991,7 @@ async function newNote() {
   if (!activeFolderId) { alert("No folder selected"); return; }
   if (!await confirmDirty()) return;
 
-  await pokeAction({
-    "create-note": { notebookId: activeNotebookId, folderId: activeFolderId, title: "Untitled", bodyMd: "" }
-  });
+  await pokeNotebook({ type: "create-note", folder: activeFolderId, title: "Untitled", body: "" });
 
   // Reload, select the newest note, and focus the editor
   setTimeout(async () => {
@@ -3948,9 +4043,7 @@ async function triggerAutoCreate() {
     return;
   }
   autoCreating = true;
-  await pokeAction({
-    "create-note": { notebookId: activeNotebookId, folderId: activeFolderId, title: "Untitled", bodyMd: "" }
-  });
+  await pokeNotebook({ type: "create-note", folder: activeFolderId, title: "Untitled", body: "" });
   setTimeout(async () => {
     // Capture what the user typed during the create roundtrip
     const pendingBody = editor.value;
@@ -3996,9 +4089,9 @@ async function autoSave() {
   lastOwnSaveAt = Date.now();
 
   try {
-    await pokeAction({ "update-note": { notebookId: n.notebookId, noteId: activeNoteId, bodyMd: body, expectedRevision: sentRev } });
+    await pokeNoteAction(activeNoteId, { type: "update", body, expectedRevision: sentRev });
     if (title !== n.title) {
-      await pokeAction({ "rename-note": { notebookId: n.notebookId, noteId: activeNoteId, title } });
+      await pokeNoteAction(activeNoteId, { type: "rename", title });
     }
     notes[activeNoteId] = { ...n, title, bodyMd: body, revision: savedRevision };
     dirty = false;
@@ -4120,9 +4213,7 @@ async function deleteNote() {
   const title = n.title || "Untitled";
   if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
 
-  await pokeAction({
-    "delete-note": { noteId: activeNoteId, notebookId: activeNotebookId }
-  });
+  await pokeNoteAction(activeNoteId, { type: "delete" });
 
   delete notes[activeNoteId];
   activeNoteId = null;
@@ -4226,9 +4317,7 @@ async function publishCurrentNoteHtml() {
   const rendered = transformWikiLinksForPublish(renderMarkdown(body));
   const html = publishTemplate(n.title || "Untitled", rendered);
   try {
-    await pokeAction({
-      "publish-note": { notebookId: activeNotebookId, noteId: activeNoteId, html }
-    });
+    await pokeNoteAction(activeNoteId, { type: "publish", html });
     return true;
   } catch (_) {
     return false;
@@ -4254,9 +4343,7 @@ async function unpublishNote() {
   closeOverflow();
   if (!activeNoteId || !activeNotebookId) return;
 
-  await pokeAction({
-    "unpublish-note": { notebookId: activeNotebookId, noteId: activeNoteId }
-  });
+  await pokeNoteAction(activeNoteId, { type: "unpublish" });
 
   publishedIds.delete(pubKey(activeNotebookFlag, activeNoteId));
   document.getElementById("publish-btn").style.display = "";
@@ -4471,7 +4558,7 @@ async function createNotebook() {
   const title = document.getElementById("m-title")?.value?.trim();
   if (!title) return;
   document.getElementById("modal-backdrop").classList.remove("open");
-  await pokeAction({ "create-notebook": title });
+  await pokeTopLevel({ type: "create-notebook", title });
   setTimeout(() => loadNotebooks(), 300);
 }
 
@@ -4545,7 +4632,7 @@ async function inviteShip() {
   }
   document.getElementById("modal-backdrop").classList.remove("open");
   try {
-    await pokeAction({ "send-invite": { notebookId: activeNotebookId, ship } });
+    await pokeNotebook({ type: "invite", who: ship });
   } catch (e) {
     alert("Invite failed: " + (e?.message || "unknown error"));
   }
@@ -4561,7 +4648,7 @@ async function renameNotebook() {
   const title = document.getElementById("m-title")?.value?.trim();
   if (!title || !activeNotebookId) return;
   document.getElementById("modal-backdrop").classList.remove("open");
-  await pokeAction({ "rename-notebook": { notebookId: activeNotebookId, title } });
+  await pokeNotebook({ type: "rename", title });
   setTimeout(() => loadNotebooks(), 300);
 }
 
@@ -4621,9 +4708,7 @@ async function deleteTargetFolder() {
     ? ` This will also delete ${childCount} item${childCount === 1 ? "" : "s"} inside it.`
     : "";
   if (!confirm(`Delete folder "${f.name}"?${detail} This cannot be undone.`)) return;
-  await pokeAction({
-    "delete-folder": { notebookId: activeNotebookId, folderId: f.id, recursive: true }
-  });
+  await pokeFolderAction(f.id, { type: "delete", recursive: true });
   // If we were inside this folder (or a descendant), navigate up to root
   if (activeFolderId === f.id) navigateToFolder(rootFolderId());
   setTimeout(async () => {
@@ -4638,9 +4723,7 @@ async function submitRenameFolder() {
   if (!name || !pendingFolderEdit) return;
   const f = pendingFolderEdit;
   document.getElementById("modal-backdrop").classList.remove("open");
-  await pokeAction({
-    "rename-folder": { notebookId: activeNotebookId, folderId: f.id, name }
-  });
+  await pokeFolderAction(f.id, { type: "rename", name });
   pendingFolderEdit = null;
   setTimeout(() => loadFolders(activeNotebookId), 300);
 }
@@ -4651,7 +4734,7 @@ async function deleteNotebook() {
   const nb = notebooks[activeNotebookId];
   if (!nb) return;
   if (!confirm(`Delete notebook "${nb.title}"? This cannot be undone.`)) return;
-  await pokeAction({ "delete-notebook": { notebookId: activeNotebookId } });
+  await pokeNotebook({ type: "delete" });
   activeNotebookId = null;
   activeNotebookFlag = null;
   activeFolderId = null;
@@ -4670,9 +4753,10 @@ async function toggleNotebookVisibility() {
   const nb = notebooks[activeNotebookId];
   if (!nb) return;
   const next = nb.visibility === "public" ? "private" : "public";
-  await pokeAction({ "set-visibility": { notebookId: activeNotebookId, visibility: next } });
+  await pokeNotebook({ type: "visibility", visibility: next });
   // Optimistic local update
   nb.visibility = next;
+  renderNotebooks();
   updateHeader();
   // One-time hint the first time a notebook is made public
   if (next === "public") {
@@ -4734,7 +4818,7 @@ async function leaveRemoteNotebook() {
   const slash = activeNotebookFlag.indexOf("/");
   const ship = activeNotebookFlag.slice(0, slash);
   const name = activeNotebookFlag.slice(slash + 1);
-  await pokeAction({ "leave-remote": { ship, name } });
+  await pokeTopLevel({ type: "leave", ship, name });
   activeNotebookId = null;
   activeNotebookFlag = null;
   activeFolderId = null;
@@ -4754,7 +4838,7 @@ async function joinNotebook() {
   const ship = parts[0].startsWith("~") ? parts[0] : "~" + parts[0];
   const name = parts.slice(1).join("/");
   document.getElementById("modal-backdrop").classList.remove("open");
-  await pokeAction({ "join-remote": { ship, name } });
+  await pokeTopLevel({ type: "join", ship, name });
   setTimeout(() => loadNotebooks(), 2000);
 }
 
@@ -4771,13 +4855,7 @@ async function createFolder() {
     parentFolderId = rootFolder ? rootFolder.id : null;
   }
 
-  await pokeAction({
-    "create-folder": {
-      notebookId: activeNotebookId,
-      parentFolderId: parentFolderId,
-      name
-    }
-  });
+  await pokeNotebook({ type: "create-folder", parent: parentFolderId || null, name });
   setTimeout(() => loadFolders(activeNotebookId), 300);
 }
 
@@ -5334,7 +5412,8 @@ function esc(s) {
 function isOwnSaveEchoPure(evt, savedRev, shipId, lastSaveAt, now) {
   const r = evt && evt.revision;
   if (typeof r === "number" && r <= savedRev) return true;
-  const actor = ((evt && evt.actor) || "").replace(/^~/, "");
+  // Support both old "actor" field and new "updatedBy" field
+  const actor = ((evt && (evt.actor || evt.updatedBy)) || "").replace(/^~/, "");
   const us = (shipId || "").replace(/^~/, "");
   if (actor && us && actor === us && now - lastSaveAt < 2000) return true;
   return false;
