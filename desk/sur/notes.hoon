@@ -43,6 +43,18 @@
 ::
 +$  notebook-members  (map ship role)
 ::
+::  note-revision: an archived prior version of a note. We keep title and
+::  body so a viewer can see exactly what the note looked like at that
+::  revision. Author is the ship that authored the *new* revision (i.e.,
+::  whose write produced this archive).
++$  note-revision
+  $:  rev=@ud
+      at=@da
+      author=ship
+      title=@t
+      body-md=@t
+  ==
+::
 +$  import-node
   $%  [%folder name=@t children=(list import-node)]
       [%note title=@t body-md=@t]
@@ -153,6 +165,10 @@
       [%note-moved note-id=@ud notebook-id=@ud folder-id=@ud actor=ship]
       [%note-deleted note-id=@ud notebook-id=@ud actor=ship]
       [%note-updated =note actor=ship]
+      ::  note-revision-archived: a prior revision of a note has been
+      ::  pushed to history. Emitted by the host on every successful
+      ::  %update-note. Subscribers append to their local history cache.
+      [%note-revision-archived note-id=@ud =note-revision actor=ship]
       ::  These two are kept for binary compatibility with on-disk state
       ::  written by an earlier v6 build that widened u-notes. They are no
       ::  longer emitted at runtime (inbox events go out as raw JSON), and
@@ -246,5 +262,23 @@
       invites=(map flag invite-info)
   ==
 ::
-+$  state  state-6
+::
+::  state-7: per-note revision history. `history` is keyed compound on
+::  [flag note-id] (matches `published`); list is newest-first.
+::  Both host and subscribers maintain their own copy — host writes on
+::  every successful update; subscribers append on each archive event
+::  received from the host. New subscribers do not get historical
+::  backfill from joins prior to state-7; their history starts empty
+::  and accumulates from that point forward.
++$  state-7
+  $:  %7
+      books=(map flag [=net =notebook-state])
+      next-id=@ud
+      published=(map [=flag note-id=@ud] @t)
+      visibilities=(map flag visibility)
+      invites=(map flag invite-info)
+      history=(map [=flag note-id=@ud] (list note-revision))
+  ==
+::
++$  state  state-7
 --

@@ -85,7 +85,7 @@
   /* Connectivity badge — lives inside the editor toolbar */
   .conn-badge {
     display: none;
-    font-family: var(--font);
+    font-family: var(--mono);
     font-size: 11px;
     font-weight: 500;
     padding: 0 8px;
@@ -413,6 +413,12 @@
     flex-shrink: 0;
   }
   .editor-toolbar .spacer { flex: 1; }
+  /* Empty status spans (no save text, no rev, no conn label) shouldn't
+     consume gap. Hiding them collapses the surrounding 8px flex gap. */
+  .editor-toolbar .save-status:empty,
+  .editor-toolbar .note-rev:empty,
+  .editor-toolbar .conn-badge:empty,
+  .editor-toolbar .note-breadcrumb:empty { display: none; }
 
   /* Floating bottom-right toolbar on desktop */
   @media (min-width: 641px) {
@@ -436,7 +442,7 @@
     .editor-toolbar .save-status { padding: 0 4px; }
     .editor-toolbar .note-rev { padding: 0 4px; }
     .editor-toolbar .note-breadcrumb {
-      font-family: var(--font);
+      font-family: var(--mono);
       font-size: 11px;
       color: var(--text-muted);
       max-width: 320px;
@@ -518,6 +524,30 @@
     box-sizing: border-box;
   }
   #note-title-input::placeholder { color: var(--text-muted); font-weight: 700; }
+  /* Folder path above the title — desktop only; mobile keeps its in-toolbar
+     breadcrumb (next to the back button). Always renders (even when empty)
+     so the title sits at a fixed vertical position regardless of whether a
+     note is selected or what folder it lives in. */
+  .note-path {
+    display: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.4;
+    height: 17px;
+    color: var(--text-muted);
+    opacity: 0.7;
+    margin: 0 0 6px 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: none;
+  }
+  @media (min-width: 641px) {
+    .note-path { display: block; }
+    /* Hide the breadcrumb in the floating toolbar on desktop — it lives
+       above the title now. */
+    .editor-toolbar .note-breadcrumb { display: none !important; }
+  }
   .save-btn {
     background: var(--accent); border: none; color: #fff;
     padding: 5px 12px; border-radius: 5px; cursor: pointer;
@@ -526,7 +556,7 @@
   }
   .save-btn:hover { background: var(--accent-hover); }
   .save-btn:disabled { opacity: 0.4; cursor: default; }
-  .save-status { font-size: 11px; color: var(--text-muted); }
+  .save-status { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
   .note-rev { font-family: var(--mono); font-size: 11px; color: var(--text-muted); opacity: 0.6; user-select: none; }
 
   /* ── conflict / save-error banner ── */
@@ -719,6 +749,103 @@
     opacity: 1 !important;
   }
 
+  /* ── history panel (right slide-in) ── */
+  .history-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 340px;
+    max-width: 100vw;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    box-shadow: -4px 0 16px rgba(0,0,0,0.18);
+    z-index: 170;
+    display: none;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.18s ease;
+  }
+  .history-panel.open { display: flex; transform: translateX(0); }
+  /* Reserve space on the right for the panel so it doesn't overlap the
+     banner buttons or the floating format strip. Skip on narrow viewports
+     where the panel takes the full width. */
+  @media (min-width: 700px) {
+    body.history-open .editor-panel { padding-right: 340px; }
+  }
+  .history-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 14px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .history-panel-header h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    flex: 1;
+  }
+  .history-panel-header .icon-btn { padding: 4px; }
+  .history-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+  .history-item {
+    display: block;
+    padding: 10px 14px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-item);
+    font-size: 13px;
+    color: var(--text);
+  }
+  .history-item:hover { background: var(--surface2); }
+  .history-item.active { background: var(--surface2); }
+  .history-item-meta {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+  }
+  .history-item-meta .rev-num {
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 11.5px;
+  }
+  .history-item-title {
+    font-size: 13px;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .history-empty {
+    padding: 20px 14px;
+    color: var(--text-muted);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  /* Banner shown above editor when viewing a historical revision */
+  .history-banner {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: rgba(124,106,247,0.12);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text);
+  }
+  .history-banner.open { display: flex; }
+  .history-banner .banner-msg { flex: 1; }
+  .history-banner .banner-msg strong { color: var(--accent); font-family: var(--mono); }
+
   /* ── wiki-link autocomplete popover ── */
   .wiki-autocomplete {
     display: none;
@@ -811,7 +938,16 @@
     margin-bottom: 12px;
   }
   .modal input:focus, .modal select:focus { border-color: var(--accent); }
+  .modal-status {
+    font-size: 12px;
+    color: var(--text-muted);
+    min-height: 16px;
+    margin: -8px 0 12px;
+    line-height: 1.4;
+  }
+  .modal-status.warn { color: var(--danger); }
   .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .modal-actions .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
   .modal-choices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
   .modal-choice {
     display: flex; flex-direction: column; gap: 2px;
@@ -1140,7 +1276,7 @@
     .save-status { font-size: 13px; }
     .note-rev { font-size: 12px; }
     .note-breadcrumb {
-      font-family: var(--font);
+      font-family: var(--mono);
       font-size: 12px;
       color: var(--text-muted);
       min-width: 0;
@@ -1301,6 +1437,15 @@
     <line x1="12.5" y1="3.5" x2="12.5" y2="8.5"/>
     <line x1="10" y1="6" x2="15" y2="6"/>
   </symbol>
+  <symbol id="i-clock" viewBox="0 0 16 16">
+    <circle cx="8" cy="8" r="6.5"/>
+    <line x1="8" y1="4.5" x2="8" y2="8"/>
+    <line x1="8" y1="8" x2="11" y2="9.5"/>
+  </symbol>
+  <symbol id="i-x" viewBox="0 0 16 16">
+    <line x1="3.5" y1="3.5" x2="12.5" y2="12.5"/>
+    <line x1="12.5" y1="3.5" x2="3.5" y2="12.5"/>
+  </symbol>
 </svg>
 
 <!-- Connect panel (shown until URL + auth set) -->
@@ -1339,7 +1484,7 @@
       <svg class="icon brand-icon"><use href="#i-notebook"/></svg>
       <div class="brand-text">
         <span class="brand-name">Notes</span>
-        <span class="sidebar-version">alpha v0.7.0</span>
+        <span class="sidebar-version">alpha v0.8.0</span>
       </div>
       <button class="icon-btn sidebar-menu-btn" onclick="toggleSidebarMenu()" title="More"><svg class="icon"><use href="#i-menu"/></svg></button>
     </div>
@@ -1433,6 +1578,9 @@
           </button>
           <div class="menu-section" id="overflow-note-section" style="display:none">
             <div class="menu-divider"></div>
+            <button onclick="openHistoryPanel(); closeOverflow();">
+              <span class="menu-icon"><svg class="icon"><use href="#i-clock"/></svg></span>View history
+            </button>
             <button id="publish-btn" onclick="publishNote();">
               <span class="menu-icon"><svg class="icon"><use href="#i-globe"/></svg></span>Publish to web
             </button>
@@ -1451,8 +1599,14 @@
       <button id="conflict-keep" onclick="resolveConflictKeepMine()" class="btn btn-secondary">Keep mine</button>
       <button id="conflict-use" onclick="resolveConflictUseRemote()" class="btn btn-secondary">Use remote</button>
     </div>
+    <div class="history-banner" id="history-banner">
+      <span class="banner-msg" id="history-banner-msg"></span>
+      <button onclick="restoreHistoryEntry()" class="btn btn-primary">Restore this version</button>
+      <button onclick="backToLatest()" class="btn btn-secondary">Back to latest</button>
+    </div>
     <div class="editor-scroll">
       <div class="editor-wrap">
+        <div class="note-path" id="note-path"></div>
         <input id="note-title-input" type="text" placeholder="Untitled" oninput="onEditorInput()" />
         <textarea id="editor" placeholder="Start writing…" oninput="onEditorInput()"></textarea>
         <div id="preview" style="display:none"></div>
@@ -1473,6 +1627,16 @@
 
 <!-- Zen-mode exit button (only visible when body.zen-mode) -->
 <button id="zen-exit-btn" class="icon-btn" onclick="toggleZen()" title="Exit zen mode (Esc)"><svg class="icon"><use href="#i-collapse"/></svg></button>
+
+<!-- History panel (slide-in from right when active) -->
+<aside class="history-panel" id="history-panel" aria-hidden="true">
+  <div class="history-panel-header">
+    <svg class="icon"><use href="#i-clock"/></svg>
+    <h3>History</h3>
+    <button class="icon-btn" onclick="closeHistoryPanel()" title="Close history"><svg class="icon"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="history-list" id="history-list"></div>
+</aside>
 
 <!-- Modals -->
 <div class="modal-backdrop" id="modal-backdrop" onclick="closeModal(event)">
@@ -1561,6 +1725,12 @@ let activeNotebookId = null;   // numeric id
 let activeNotebookFlag = null; // "~ship/name" for scry paths
 let activeFolderId = null;
 let activeNoteId = null;
+
+// Revision history viewer state. `historyEntries` is the latest fetched
+// list (newest-first). `historyViewing` is the entry currently loaded into
+// the editor in read-only mode, or null when viewing the live note.
+let historyEntries = [];
+let historyViewing = null;
 let dirty = false;
 let savedRevision = 0;
 
@@ -1922,6 +2092,7 @@ function handleEvent(msg) {
     if (type === "notebook-created" || type === "notebook-renamed" || type === "notebook-visibility-changed") loadNotebooks();
     else if (type === "notebook-deleted") handleNotebookDeleted(evt.notebookId);
     else if (type?.startsWith("folder-")) loadFolders(activeNotebookId);
+    else if (type === "note-revision-archived") applyArchivedRevision(evt);
     else if (type?.startsWith("note-")) {
       loadNotes(activeNotebookId);
       if (type === "note-updated" && evt.noteId === activeNoteId && !isOwnSaveEcho(evt)) {
@@ -1937,6 +2108,7 @@ function handleEvent(msg) {
   if (type === "notebook-created" || type === "notebook-renamed" || type === "notebook-visibility-changed") loadNotebooks();
   else if (type === "notebook-deleted") handleNotebookDeleted(data.notebookId);
   else if (type?.startsWith("folder-")) loadFolders(activeNotebookId);
+  else if (type === "note-revision-archived") applyArchivedRevision(data);
   else if (type?.startsWith("note-")) {
     loadNotes(activeNotebookId);
     if (type === "note-updated" && data.noteId === activeNoteId && !isOwnSaveEcho(data)) {
@@ -2660,6 +2832,7 @@ function inline(s) {
 // ── Selection ─────────────────────────────────────────────────────────────
 async function selectNotebook(id) {
   if (!await confirmDirty()) return;
+  closeHistoryPanel();
   const changing = activeNotebookId !== id;
   activeNotebookId = id;
   const nb = notebooks[id];
@@ -2693,6 +2866,7 @@ async function selectNotebook(id) {
 async function selectNote(id) {
   if (!await confirmDirty()) return;
   dismissConflictBanner();
+  closeHistoryPanel();
   activeNoteId = id;
   renderItems();
   const n = notes[id];
@@ -3298,6 +3472,141 @@ function renderBacklinks() {
   });
 }
 
+// ── Revision history panel ───────────────────────────────────────────────
+// Lazy-fetched on open via /v0/note-history/<flag>/<id>. While open, new
+// archive events from the SSE stream prepend to historyEntries and re-render.
+async function openHistoryPanel() {
+  if (!activeNoteId || !activeNotebookFlag) return;
+  const panel = document.getElementById("history-panel");
+  panel.classList.add("open");
+  panel.setAttribute("aria-hidden", "false");
+  document.body.classList.add("history-open");
+  await loadHistoryEntries();
+  renderHistoryList();
+}
+
+function closeHistoryPanel() {
+  const panel = document.getElementById("history-panel");
+  if (!panel) return;
+  panel.classList.remove("open");
+  panel.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("history-open");
+  // If we were viewing a historical revision, reset to the live note.
+  if (historyViewing) backToLatest();
+  historyEntries = [];
+}
+
+async function loadHistoryEntries() {
+  if (!activeNotebookFlag || !activeNoteId) return;
+  const path = `/v0/note-history/${activeNotebookFlag}/${activeNoteId}`;
+  const data = await scry(path);
+  historyEntries = Array.isArray(data) ? data : [];
+}
+
+function fmtHistoryTime(unixSec) {
+  if (!unixSec) return "";
+  const d = new Date(unixSec * 1000);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return d.toLocaleDateString([], sameYear
+    ? { month: "short", day: "numeric" }
+    : { year: "numeric", month: "short", day: "numeric" });
+}
+
+function renderHistoryList() {
+  const el = document.getElementById("history-list");
+  if (!el) return;
+  if (!historyEntries.length) {
+    el.innerHTML = `<div class="history-empty">No prior versions yet. Edits will appear here once you make them.</div>`;
+    return;
+  }
+  const viewingRev = historyViewing ? historyViewing.rev : null;
+  el.innerHTML = historyEntries.map(e => `
+    <div class="history-item${e.rev === viewingRev ? " active" : ""}" data-rev="${e.rev}">
+      <div class="history-item-meta">
+        <span class="rev-num">rev ${e.rev}</span>
+        <span>${esc(fmtHistoryTime(e.at))}</span>
+        <span>${esc(e.author)}</span>
+      </div>
+      <div class="history-item-title">${esc(e.title || "Untitled")}</div>
+    </div>
+  `).join("");
+  el.querySelectorAll(".history-item").forEach(item => {
+    item.onclick = () => { viewHistoryEntry(parseInt(item.dataset.rev, 10)); };
+  });
+}
+
+function applyArchivedRevision(evt) {
+  // The SSE archive event carries { noteId, revision: { rev, at, author, title, bodyMd }, actor }.
+  if (!evt || evt.noteId !== activeNoteId) return;
+  const rev = evt.revision;
+  if (!rev || typeof rev.rev !== "number") return;
+  // Avoid duplicates if the same rev was already prepended (network races).
+  if (historyEntries.some(x => x.rev === rev.rev)) return;
+  historyEntries = [rev, ...historyEntries];
+  const panel = document.getElementById("history-panel");
+  if (panel && panel.classList.contains("open")) renderHistoryList();
+}
+
+async function viewHistoryEntry(rev) {
+  const entry = historyEntries.find(e => e.rev === rev);
+  if (!entry) return;
+  // Persist dirty work first so it isn't lost when the editor flips to
+  // read-only. confirmDirty returns true after autoSave completes.
+  if (!await confirmDirty()) return;
+  historyViewing = entry;
+  document.getElementById("note-title-input").value = entry.title || "";
+  document.getElementById("editor").value = entry.bodyMd || "";
+  document.getElementById("note-title-input").readOnly = true;
+  document.getElementById("editor").readOnly = true;
+  if (previewMode) document.getElementById("preview").innerHTML = renderMarkdown(entry.bodyMd || "");
+  autosizeEditor();
+  const banner = document.getElementById("history-banner");
+  document.getElementById("history-banner-msg").innerHTML =
+    `Viewing <strong>rev ${entry.rev}</strong> from ${esc(fmtHistoryTime(entry.at))} by ${esc(entry.author)}. The editor is read-only.`;
+  banner.classList.add("open");
+  renderHistoryList();
+}
+
+function backToLatest() {
+  historyViewing = null;
+  document.getElementById("history-banner").classList.remove("open");
+  document.getElementById("note-title-input").readOnly = false;
+  document.getElementById("editor").readOnly = false;
+  if (activeNoteId) {
+    const n = notes[activeNoteId];
+    if (n) {
+      document.getElementById("note-title-input").value = n.title;
+      document.getElementById("editor").value = n.bodyMd;
+      autosizeEditor();
+      if (previewMode) document.getElementById("preview").innerHTML = renderMarkdown(n.bodyMd);
+      savedRevision = n.revision;
+      clearDirty();
+    }
+  }
+  renderHistoryList();
+}
+
+async function restoreHistoryEntry() {
+  if (!historyViewing || !activeNoteId) return;
+  const entry = historyViewing;
+  const n = notes[activeNoteId];
+  if (!n) return;
+  // Drop history-view first so the editor accepts the write through normal channels.
+  const targetTitle = entry.title || "";
+  const targetBody = entry.bodyMd || "";
+  backToLatest();
+  // Apply the restored content through the normal save path so the server
+  // archives the current rev and assigns a fresh revision number.
+  document.getElementById("note-title-input").value = targetTitle;
+  document.getElementById("editor").value = targetBody;
+  autosizeEditor();
+  dirty = true;
+  await saveNote();
+}
+
 // ── Wiki-link autocomplete (on [[) ────────────────────────────────────────
 let wikiAutocompleteOpen = false;
 let wikiAutocompleteStart = -1;  // textarea index of the '[[' we're completing
@@ -3519,8 +3828,12 @@ document.getElementById("preview").addEventListener("click", (e) => {
 // ── Folder breadcrumb ─────────────────────────────────────────────────────
 function updateBreadcrumb() {
   const el = document.getElementById("note-breadcrumb");
-  if (!el) return;
-  if (!activeNoteId || !notes[activeNoteId]) { el.textContent = ""; el.dataset.full = ""; return; }
+  const pathEl = document.getElementById("note-path");
+  if (!activeNoteId || !notes[activeNoteId]) {
+    if (el) { el.textContent = ""; el.dataset.full = ""; }
+    if (pathEl) pathEl.textContent = "";
+    return;
+  }
   const n = notes[activeNoteId];
   const chain = [];
   let fid = n.folderId;
@@ -3530,12 +3843,18 @@ function updateBreadcrumb() {
     if (f.name !== "/") chain.unshift(f.name);
     fid = f.parentFolderId;
   }
-  const full = chain.length ? "/ " + chain.join(" / ") : "/";
-  el.dataset.full = full;
-  el.textContent = full;
-  // On mobile, JS-truncate from the left so the deepest folder stays visible
-  // and the text remains left-aligned (CSS ellipsis can't combine both).
-  if (window.innerWidth <= 640) requestAnimationFrame(() => truncateBreadcrumbLeft(el));
+  const full = chain.length ? "/" + chain.join("/") : "/";
+  if (el) {
+    el.dataset.full = full;
+    el.textContent = full;
+    // On mobile, JS-truncate from the left so the deepest folder stays visible
+    // and the text remains left-aligned (CSS ellipsis can't combine both).
+    if (window.innerWidth <= 640) requestAnimationFrame(() => truncateBreadcrumbLeft(el));
+  }
+  // Desktop: also write to the in-editor path label above the title.
+  // Always render (even bare "/") so the title doesn't jump vertically
+  // as the user moves between root-level and nested notes.
+  if (pathEl) pathEl.textContent = full;
 }
 
 function truncateBreadcrumbLeft(el) {
@@ -3598,6 +3917,8 @@ let autoCreating = false;
 let conflictActive = false;
 
 function onEditorInput() {
+  // Read-only while viewing a historical revision; ignore stray inputs.
+  if (historyViewing) return;
   // If the user starts typing with no note selected, auto-create one.
   if (!activeNoteId && !autoCreating) {
     triggerAutoCreate();
@@ -3655,7 +3976,7 @@ async function triggerAutoCreate() {
 let lastOwnSaveAt = 0;
 
 async function autoSave() {
-  if (!activeNoteId || !dirty || saving || conflictActive) return;
+  if (!activeNoteId || !dirty || saving || conflictActive || historyViewing) return;
   saving = true;
   const title = document.getElementById("note-title-input").value.trim() || "Untitled";
   const body = document.getElementById("editor").value;
@@ -4083,13 +4404,22 @@ function openModal(type) {
       <p style="font-size:13px;color:var(--text-muted);line-height:1.5;margin-bottom:14px">
         Send an invite to <strong style="color:var(--text)">${esc(nb.title || "Untitled")}</strong>. They'll see it in their pending invites and can accept to join.
       </p>
-      <input id="m-ship" type="text" placeholder="~sampel-palnet" autofocus />
+      <input id="m-ship" type="text" placeholder="~sampel-palnet" autocomplete="off" autofocus />
+      <div id="m-ship-status" class="modal-status" aria-live="polite"></div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="inviteShip()">Invite</button>
+        <button class="btn btn-primary" id="m-ship-submit" onclick="inviteShip()">Invite</button>
       </div>
     `;
-    box.querySelector("#m-ship").addEventListener("keydown", e => { if (e.key==="Enter") inviteShip(); });
+    const inp = box.querySelector("#m-ship");
+    inp.addEventListener("keydown", e => { if (e.key==="Enter") inviteShip(); });
+    inp.addEventListener("input", validateInviteShip);
+    // Fetch the current member list so we can flag self/already-member entries.
+    inviteMembersCache = null;
+    scry(`/v0/members/${nb.flag}`).then(list => {
+      inviteMembersCache = Array.isArray(list) ? list : [];
+      validateInviteShip();
+    });
   } else if (type === "rename-folder") {
     if (!pendingFolderEdit) return;
     box.innerHTML = `
@@ -4150,13 +4480,66 @@ function openInviteModal() {
   openModal("invite-ship");
 }
 
+let inviteMembersCache = null;  // [{ ship, role }, ...] loaded on modal open
+
+function normalizeShip(raw) {
+  if (!raw) return "";
+  const s = raw.trim();
+  if (!s) return "";
+  return s.startsWith("~") ? s : "~" + s;
+}
+
+function isShipShape(s) {
+  return /^~[a-z][a-z0-9-]*$/.test(s);
+}
+
+// Live status under the ship input — disables submit when the typed ship
+// is invalid, the operator's own ship, or already in the member list.
+function validateInviteShip() {
+  const inp = document.getElementById("m-ship");
+  const status = document.getElementById("m-ship-status");
+  const submit = document.getElementById("m-ship-submit");
+  if (!inp || !status || !submit) return;
+  const raw = inp.value.trim();
+  const ship = normalizeShip(raw);
+  if (!raw) {
+    status.textContent = "";
+    status.className = "modal-status";
+    submit.disabled = false;
+    return;
+  }
+  if (!isShipShape(ship)) {
+    status.textContent = "Doesn't look like a ship name (e.g. ~sampel-palnet).";
+    status.className = "modal-status warn";
+    submit.disabled = true;
+    return;
+  }
+  if (SHIP && ship.replace(/^~/, "") === SHIP.replace(/^~/, "")) {
+    status.textContent = "That's you — pick a different ship.";
+    status.className = "modal-status warn";
+    submit.disabled = true;
+    return;
+  }
+  if (inviteMembersCache && inviteMembersCache.some(m => m.ship === ship)) {
+    status.textContent = `${ship} is already a member of this notebook.`;
+    status.className = "modal-status warn";
+    submit.disabled = true;
+    return;
+  }
+  status.textContent = "";
+  status.className = "modal-status";
+  submit.disabled = false;
+}
+
 async function inviteShip() {
+  const submit = document.getElementById("m-ship-submit");
+  if (submit && submit.disabled) return;
   const raw = document.getElementById("m-ship")?.value?.trim();
   if (!raw || !activeNotebookId) return;
   // Accept ~sampel or sampel; agent expects sampel (no leading sig).
-  const ship = raw.startsWith("~") ? raw : "~" + raw;
+  const ship = normalizeShip(raw);
   // Lightweight format check — the agent will reject malformed ships.
-  if (!/^~[a-z][a-z0-9-]*$/.test(ship)) {
+  if (!isShipShape(ship)) {
     alert(`"${raw}" doesn't look like a valid ship name (e.g. ~sampel-palnet).`);
     return;
   }

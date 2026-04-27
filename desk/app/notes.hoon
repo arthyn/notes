@@ -7,7 +7,7 @@
 ::
 |%
 +$  card  card:agent:gall
-+$  current-state  state-6:notes
++$  current-state  state-7:notes
 --
 ::
 =|  current-state
@@ -78,7 +78,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'gear-menu-dividers-v19'
+++  dummy  'note-path-fixed-height-v29'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -99,37 +99,42 @@
     ?:  ?=(^ raw)
       ;;(@ -.raw)
     0
-  ::  state-6: current format
-  ?:  =(tag %6)
+  ::  state-7: current format
+  ?:  =(tag %7)
     =/  s=current-state  !<(current-state old)
     =.  state  s
+    cor
+  ::  state-6: add empty history map
+  ?:  =(tag %6)
+    =/  s=state-6:notes  !<(state-6:notes old)
+    =.  state  [%7 books.s next-id.s published.s visibilities.s invites.s ~]
     cor
   ::  state-5: drop any pending invites (old shape lacks title)
   ?:  =(tag %5)
     =/  s=state-5:notes  !<(state-5:notes old)
-    =.  state  [%6 books.s next-id.s published.s visibilities.s ~]
+    =.  state  [%7 books.s next-id.s published.s visibilities.s ~ ~]
     cor
   ::  state-4: add empty invites map
   ?:  =(tag %4)
     =/  s=state-4:notes  !<(state-4:notes old)
-    =.  state  [%6 books.s next-id.s published.s visibilities.s ~]
+    =.  state  [%7 books.s next-id.s published.s visibilities.s ~ ~]
     cor
   ::  state-3: migrate by adding empty visibilities + invites
   ?:  =(tag %3)
     =/  s=state-3:notes  !<(state-3:notes old)
-    =.  state  [%6 books.s next-id.s published.s ~ ~]
+    =.  state  [%7 books.s next-id.s published.s ~ ~ ~]
     cor
   ::  state-2: migrate by dropping published entries
   ::  (old map was keyed by bare note-id — cannot be safely re-keyed post-hoc
   ::  because different notebooks may have the same note-id)
   ?:  =(tag %2)
     =/  s=state-2:notes  !<(state-2:notes old)
-    =.  state  [%6 books.s next-id.s ~ ~ ~]
+    =.  state  [%7 books.s next-id.s ~ ~ ~ ~]
     cor
   ::  state-1: migrate by adding empty published map
   ?:  =(tag %1)
     =/  s=state-1:notes  !<(state-1:notes old)
-    =.  state  [%6 books.s next-id.s ~ ~ ~]
+    =.  state  [%7 books.s next-id.s ~ ~ ~ ~]
     cor
   ::  state-0 or unknown: start fresh
   ::  acceptable during this migration; task says single-player breakage is ok
@@ -511,6 +516,21 @@
       (~(get by notes.notebook-state.u.entry) nid)
     ?~  nt  ``json+!>(~)
     ``json+!>((note:enjs:notes-json u.nt))
+    ::  /x/v0/note-history/<ship>/<name>/<id> — revision history for a note,
+    ::  newest-first. Returns [] when there are no archived revisions.
+      [%x %v0 %note-history ship=@ name=@ id=@ ~]
+    =/  =flag:notes  [(slav %p ship.pole) name.pole]
+    =/  entry=(unit [=net:notes =notebook-state:notes])
+      (~(get by books.state) flag)
+    ?~  entry  ``json+!>(~)
+    ?>  (can-view-flag flag src.bowl)
+    =/  nid=@ud  (slav %ud id.pole)
+    =/  revs=(list note-revision:notes)
+      (fall (~(get by history.state) [flag nid]) ~)
+    =/  items=(list json)
+      %+  turn  revs
+      note-revision:enjs:notes-json
+    ``json+!>([%a items])
     ::  /x/v0/folder/<ship>/<name>/<id> — single folder by ID
       [%x %v0 %folder ship=@ name=@ id=@ ~]
     =/  =flag:notes  [(slav %p ship.pole) name.pole]
@@ -908,6 +928,12 @@
       %+  skip  ~(tap by published.state)
       |=  [k=[=flag:notes note-id=@ud] v=@t]
       =(flag.k flag)
+    ::  clean up history entries for this notebook
+    =.  history.state
+      %-  malt
+      %+  skip  ~(tap by history.state)
+      |=  [k=[=flag:notes note-id=@ud] v=(list note-revision:notes)]
+      =(flag.k flag)
     ::  clean up visibility entry for this notebook
     =.  visibilities.state  (~(del by visibilities.state) flag)
     ::  emit deletion update (broadcasts to subscribers)
@@ -1177,6 +1203,27 @@
     ::  subscribers may have stale revisions
     ?:  &(!=(0 expected-revision.cmd) !=(revision.nt expected-revision.cmd))
       ~|(%revision-mismatch !!)
+    ::  no-op early-out: if the body-md is unchanged, don't bump revision
+    ::  or archive history. Prevents idle autosaves from polluting history.
+    ?:  =(body-md.nt body-md.cmd)
+      se-core
+    ::  archive the prior revision before applying the new one. The archive
+    ::  records the rev the snapshot was AT (i.e. the prior rev), not the
+    ::  rev that replaced it — so a note now on rev=N has history entries
+    ::  with revs N-1, N-2, ... `at` and `author` describe the write that
+    ::  produced this archive (i.e. the rev=N one).
+    =/  prior=note-revision:notes
+      :*  rev=revision.nt
+          at=now.bowl
+          author=actor.cmd
+          title=title.nt
+          body-md=body-md.nt
+      ==
+    =/  hkey=[=flag:notes note-id=@ud]  [flag note-id.cmd]
+    =/  existing=(list note-revision:notes)
+      (fall (~(get by history.state) hkey) ~)
+    =.  history.state
+      (~(put by history.state) hkey [prior existing])
     =.  nt
       %_  nt
         body-md     body-md.cmd
@@ -1186,6 +1233,10 @@
       ==
     =.  notes.notebook-state
       (~(put by notes.notebook-state) note-id.cmd nt)
+    ::  emit the archive event first so subscribers can update their cache
+    ::  in the same order revs were created on the host.
+    =.  se-core
+      (se-update [%note-revision-archived note-id.cmd prior actor.cmd])
     (se-update [%note-updated nt actor.cmd])
   ::
   ++  se-batch-import
@@ -1517,6 +1568,15 @@
         %note-updated
       =.  notes.notebook-state
         (~(put by notes.notebook-state) id.note.upd note.upd)
+      no-core
+    ::
+        %note-revision-archived
+      ::  append archived revision to our local history cache
+      =/  hkey=[=flag:notes note-id=@ud]  [flag note-id.upd]
+      =/  existing=(list note-revision:notes)
+        (fall (~(get by history.state) hkey) ~)
+      =.  history.state
+        (~(put by history.state) hkey [note-revision.upd existing])
       no-core
     ::
         %invite-received  no-core   :: present for type compat; never replayed

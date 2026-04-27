@@ -53,6 +53,18 @@
         ['revision' (numb revision.nt)]
     ==
   ::
+  ::  note-revision: archived prior version of a note
+  ++  note-revision
+    |=  nr=note-revision:notes
+    ^-  json
+    %-  pairs
+    :~  ['rev' (numb rev.nr)]
+        ['at' (numb (da-to-unix at.nr))]
+        ['author' s+(scot %p author.nr)]
+        ['title' s+title.nr]
+        ['bodyMd' s+body-md.nr]
+    ==
+  ::
   ++  event
     |=  evt=event:notes
     ^-  json
@@ -153,6 +165,12 @@
           ['notebookId' (numb notebook-id.note.evt)]
           ['revision' (numb revision.note.evt)]
           ['note' (note note.evt)]
+          ['actor' s+(scot %p actor.evt)]
+      ==
+        %note-revision-archived
+      :~  ['type' s+'note-revision-archived']
+          ['noteId' (numb note-id.evt)]
+          ['revision' (note-revision note-revision.evt)]
           ['actor' s+(scot %p actor.evt)]
       ==
         %invite-received
