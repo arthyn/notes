@@ -91,6 +91,10 @@
       [%leave =flag]
       [%accept-invite =flag]
       [%decline-invite =flag]
+      ::  $notify-invite: cross-ship hop fired by the host's %notes onto the
+      ::  invitee's %notes. Carries title so the invitee's inbox can render it
+      ::  before they've actually joined the notebook.
+      [%notify-invite =flag title=@t]
       [%notebook =flag =a-notebook]
   ==
 ::

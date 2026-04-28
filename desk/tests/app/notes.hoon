@@ -8,7 +8,7 @@
 ::  harness with no cross-agent sign exchange.
 ::
 /-  notes
-/+  *test-agent
+/+  *test-agent, notes-json
 /=  notes-agent  /app/notes
 |%
 ++  dap  %notes
@@ -911,4 +911,288 @@
   ?.  =(~bus updated-by.mig-nt)
     |+['expected note updated-by preserved (~bus)']~
   &+[~ s]
+::
+::  ====  JSON wire-format tests  ============================================
+::  These hit notes-json directly without booting the agent. They guard the
+::  UI ↔ agent contract (field names, nesting, envelope shape).
+::
+::  +mk-pairs / +mk-num / +mk-str / +mk-arr — concise json builders.
+++  mk-str  |=(s=@t [%s s])
+++  mk-num  |=(n=@ud (numb:enjs:format n))
+++  mk-arr  |=(items=(list json) [%a items])
+++  mk-obj  |=(kvs=(list [@t json]) (pairs:enjs:format kvs))
+::
+::  ====  test-json-decode-create-notebook  ====
+++  test-json-decode-create-notebook
+  %-  eval-mare
+  =/  m  (mare ,~)
+  ^-  form:m
+  =/  jon=json
+    %-  mk-obj
+    :~  ['type' [%s 'create-notebook']]
+        ['title' [%s 'My Book']]
+    ==
+  =/  parsed=action:notes  (action:dejs:notes-json jon)
+  =/  expected=action:notes  [%create-notebook 'My Book']
+  (ex-equal !>(parsed) !>(expected))
+::
+::  ====  test-json-decode-join  ====
+++  test-json-decode-join
+  %-  eval-mare
+  =/  m  (mare ,~)
+  ^-  form:m
+  =/  jon=json
+    %-  mk-obj
+    :~  ['type' [%s 'join']]
+        ['ship' [%s '~zod']]
+        ['name' [%s 'foo']]
+    ==
+  =/  parsed=action:notes  (action:dejs:notes-json jon)
+  =/  expected=action:notes  [%join [~zod 'foo']]
+  (ex-equal !>(parsed) !>(expected))
+::
+::  ====  test-json-decode-accept-invite  ====
+++  test-json-decode-accept-invite
+  %-  eval-mare
+  =/  m  (mare ,~)
+  ^-  form:m
+  =/  jon=json
+    %-  mk-obj
+    :~  ['type' [%s 'accept-invite']]
+        ['ship' [%s '~bus']]
+        ['name' [%s 'shared']]
+    ==
+  =/  parsed=action:notes  (action:dejs:notes-json jon)
+  =/  expected=action:notes  [%accept-invite [~bus 'shared']]
+  (ex-equal !>(parsed) !>(expected))
+::
+::  ====  test-json-decode-notify-invite  ====
+::  Cross-ship hop: host pokes invitee with [%notify-invite flag title].
+++  test-json-decode-notify-invite
+  %-  eval-mare
+  =/  m  (mare ,~)
+  ^-  form:m
+  =/  jon=json
+    %-  mk-obj
+    :~  ['type' [%s 'notify-invite']]
+        ['ship' [%s '~zod']]
+        ['name' [%s 'shared']]
+        ['title' [%s 'Notebook Title']]
+    ==
+  =/  parsed=action:notes  (action:dejs:notes-json jon)
+  =/  expected=action:notes  [%notify-invite [~zod 'shared'] 'Notebook Title']
+  (ex-equal !>(parsed) !>(expected))
+::
+::  ====  test-json-decode-notebook-rename  ====
+++  test-json-decode-notebook-rename
+  %-  eval-mare
+  =/  m  (mare ,~)
+  ^-  form:m
+  =/  inner=json
+    %-  mk-obj
+    :~  ['type' [%s 'rename']]
+        ['title' [%s 'New Name']]
+    ==
+  =/  jon=json
+    %-  mk-obj
+    :~  ['type' [%s 'notebook']]
+        ['flag' [%s '~zod/foo']]
+        ['action' inner]
+    ==
+  =/  parsed=action:notes  (action:dejs:notes-json jon)
+  =/  expected=action:notes  [%notebook [~zod 'foo'] [%rename 'New Name']]
+  (ex-equal !>(parsed) !>(expected))
+::
+::  ====  test-json-decode-folder-rename-nested  ====
+::  Three-level nesting: notebook → folder id → folder action.
+++  test-json-decode-folder-rename-nested
+  %-  eval-mare
+  =/  m  (mare ,~)
+  ^-  form:m
+  =/  fld=json
+    %-  mk-obj
+    :~  ['type' [%s 'rename']]
+        ['name' [%s 'docs']]
+    ==
+  =/  inner=json
+    %-  mk-obj
+    :~  ['type' [%s 'folder']]
+        ['id' (mk-num 7)]
+        ['action' fld]
+    ==
+  =/  jon=json
+    %-  mk-obj
+    :~  ['type' [%s 'notebook']]
+        ['flag' [%s '~zod/foo']]
+        ['action' inner]
+    ==
+  =/  parsed=action:notes  (action:dejs:notes-json jon)
+  =/  expected=action:notes
+    [%notebook [~zod 'foo'] [%folder 7 [%rename 'docs']]]
+  (ex-equal !>(parsed) !>(expected))
+::
+::  ====  test-json-decode-note-update-nested  ====
+++  test-json-decode-note-update-nested
+  %-  eval-mare
+  =/  m  (mare ,~)
+  ^-  form:m
+  =/  nt=json
+    %-  mk-obj
+    :~  ['type' [%s 'update']]
+        ['body' [%s '# Hello']]
+        ['expectedRevision' (mk-num 3)]
+    ==
+  =/  inner=json
+    %-  mk-obj
+    :~  ['type' [%s 'note']]
+        ['id' (mk-num 12)]
+        ['action' nt]
+    ==
+  =/  jon=json
+    %-  mk-obj
+    :~  ['type' [%s 'notebook']]
+        ['flag' [%s '~zod/foo']]
+        ['action' inner]
+    ==
+  =/  parsed=action:notes  (action:dejs:notes-json jon)
+  =/  expected=action:notes
+    [%notebook [~zod 'foo'] [%note 12 [%update '# Hello' 3]]]
+  (ex-equal !>(parsed) !>(expected))
+::
+::  ====  test-json-decode-batch-import-flat  ====
+::  Notes use `body` (not `bodyMd`) on the wire.
+++  test-json-decode-batch-import-flat
+  %-  eval-mare
+  =/  m  (mare ,~)
+  ^-  form:m
+  =/  n1=json
+    (mk-obj ~[['title' [%s 'a']] ['body' [%s 'A body']]])
+  =/  n2=json
+    (mk-obj ~[['title' [%s 'b']] ['body' [%s 'B body']]])
+  =/  inner=json
+    %-  mk-obj
+    :~  ['type' [%s 'batch-import']]
+        ['folder' (mk-num 2)]
+        ['notes' (mk-arr ~[n1 n2])]
+    ==
+  =/  jon=json
+    %-  mk-obj
+    :~  ['type' [%s 'notebook']]
+        ['flag' [%s '~zod/foo']]
+        ['action' inner]
+    ==
+  =/  parsed=action:notes  (action:dejs:notes-json jon)
+  =/  expected=action:notes
+    :*  %notebook
+        [~zod 'foo']
+        :*  %batch-import
+            2
+            ~[[title='a' body='A body'] [title='b' body='B body']]
+        ==
+    ==
+  (ex-equal !>(parsed) !>(expected))
+::
+::  ====  test-json-decode-batch-import-tree  ====
+::  REGRESSION: tree note nodes use `body` (not `bodyMd`). Bug shipped briefly
+::  where the tree builder sent bodyMd while the decoder expected body.
+++  test-json-decode-batch-import-tree
+  %-  eval-mare
+  =/  m  (mare ,~)
+  ^-  form:m
+  =/  leaf=json
+    (mk-obj ~[['title' [%s 'README']] ['body' [%s 'hello']]])
+  =/  sub-folder=json
+    %-  mk-obj
+    :~  ['name' [%s 'sub']]
+        ['children' (mk-arr ~[leaf])]
+    ==
+  =/  inner=json
+    %-  mk-obj
+    :~  ['type' [%s 'batch-import-tree']]
+        ['parent' (mk-num 2)]
+        ['tree' (mk-arr ~[sub-folder])]
+    ==
+  =/  jon=json
+    %-  mk-obj
+    :~  ['type' [%s 'notebook']]
+        ['flag' [%s '~zod/foo']]
+        ['action' inner]
+    ==
+  =/  parsed=action:notes  (action:dejs:notes-json jon)
+  =/  expected=action:notes
+    :*  %notebook
+        [~zod 'foo']
+        :*  %batch-import-tree
+            2
+            ~[[%folder 'sub' ~[[%note 'README' 'hello']]]]
+        ==
+    ==
+  (ex-equal !>(parsed) !>(expected))
+::
+::  ====  test-json-decode-create-folder  ====
+::  parent is (unit @ud); null in JSON → ~ in Hoon.
+++  test-json-decode-create-folder-no-parent
+  %-  eval-mare
+  =/  m  (mare ,~)
+  ^-  form:m
+  =/  inner=json
+    %-  mk-obj
+    :~  ['type' [%s 'create-folder']]
+        ['parent' ~]
+        ['name' [%s 'docs']]
+    ==
+  =/  jon=json
+    %-  mk-obj
+    :~  ['type' [%s 'notebook']]
+        ['flag' [%s '~zod/foo']]
+        ['action' inner]
+    ==
+  =/  parsed=action:notes  (action:dejs:notes-json jon)
+  =/  expected=action:notes
+    [%notebook [~zod 'foo'] [%create-folder ~ 'docs']]
+  (ex-equal !>(parsed) !>(expected))
+::
+::  ====  test-json-decode-create-folder-with-parent  ====
+++  test-json-decode-create-folder-with-parent
+  %-  eval-mare
+  =/  m  (mare ,~)
+  ^-  form:m
+  =/  inner=json
+    %-  mk-obj
+    :~  ['type' [%s 'create-folder']]
+        ['parent' (mk-num 2)]
+        ['name' [%s 'subdir']]
+    ==
+  =/  jon=json
+    %-  mk-obj
+    :~  ['type' [%s 'notebook']]
+        ['flag' [%s '~zod/foo']]
+        ['action' inner]
+    ==
+  =/  parsed=action:notes  (action:dejs:notes-json jon)
+  =/  expected=action:notes
+    [%notebook [~zod 'foo'] [%create-folder `2 'subdir']]
+  (ex-equal !>(parsed) !>(expected))
+::
+::  ====  JSON encoder tests  ===============================================
+::
+::  ====  test-json-encode-snapshot-carries-visibility  ====
+::  Regression: snapshot must include visibility so subscribers can seed it.
+++  test-json-encode-snapshot-carries-visibility
+  %-  eval-mare
+  =/  m  (mare ,~)
+  ^-  form:m
+  |=  s=state
+  =/  nb=notebook:notes
+    [1 'Test' ~zod ~1970.1.1 ~1970.1.1 ~zod]
+  =/  nb-s=notebook-state:notes  [nb ~ ~ ~]
+  =/  res=response:notes  [%snapshot [~zod 'foo'] %public nb-s]
+  =/  jon=json  (response:enjs:notes-json res)
+  ?.  ?=([%o *] jon)
+    |+['expected json object']~
+  =/  vis=(unit json)  (~(get by p.jon) 'visibility')
+  ?~  vis
+    |+['snapshot missing visibility field']~
+  &+[~ s]
+::
 --

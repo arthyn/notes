@@ -1714,8 +1714,8 @@ let notes = {};       // id -> note (for the active notebook)
 // Per-notebook caches — lets us render immediately on notebook switch even
 // when the fresh scry fails (offline/reconnecting). Populated on successful
 // load and on switcher-index builds.
-let foldersByNb = {}; // notebookId -> { folderId -> folder }
-let notesByNb = {};   // notebookId -> { noteId -> note }
+let foldersByNb = {}; // notebookFlag -> { folderId -> folder }
+let notesByNb = {};   // notebookFlag -> { noteId -> note }
 let publishedIds = new Set();  // set of published note IDs
 let pendingInvites = {};       // "~host/name" -> { from, sentAt }
 
@@ -1800,7 +1800,7 @@ async function connect() {
 
 function saveSelection() {
   localStorage.setItem('notes-selection', JSON.stringify({
-    notebookId: activeNotebookId,
+    notebookFlag: activeNotebookFlag,
     folderId: activeFolderId,
     noteId: activeNoteId,
   }));
@@ -1809,8 +1809,8 @@ function saveSelection() {
 async function restoreSelection() {
   try {
     const saved = JSON.parse(localStorage.getItem('notes-selection') || '{}');
-    if (saved.notebookId && notebooks[saved.notebookId]) {
-      await selectNotebook(saved.notebookId);
+    if (saved.notebookFlag && notebooks[saved.notebookFlag]) {
+      await selectNotebook(saved.notebookFlag);
       if (saved.folderId && folders[saved.folderId]) {
         activeFolderId = saved.folderId;
         renderItems();
@@ -1827,8 +1827,8 @@ async function restoreSelection() {
 let applyingRoute = false;
 
 function buildRoute() {
-  if (!activeNotebookId) return "/notes/";
-  const nb = notebooks[activeNotebookId];
+  if (!activeNotebookFlag) return "/notes/";
+  const nb = notebooks[activeNotebookFlag];
   if (!nb) return "/notes/";
   let path = `/notes/nb/${nb.host}/${encodeURIComponent(nb.flagName)}`;
   const rootId = rootFolderId();
@@ -1865,7 +1865,7 @@ async function applyRoute() {
 
   applyingRoute = true;
   try {
-    if (activeNotebookId !== nb.id) await selectNotebook(nb.id);
+    if (activeNotebookFlag !== nb.flag) await selectNotebook(nb.flag);
     // Folder: URL value or implicit root
     const targetFolder = fid && folders[fid] ? fid : rootFolderId();
     if (targetFolder && activeFolderId !== targetFolder) {
@@ -1908,7 +1908,7 @@ async function applyEmbedNotebook() {
   if (!nb) return false;
   applyingRoute = true;
   try {
-    if (activeNotebookId !== nb.id) await selectNotebook(nb.id);
+    if (activeNotebookFlag !== nb.flag) await selectNotebook(nb.flag);
     if (isMobile()) mobileSetView("notes");
   } finally {
     applyingRoute = false;
@@ -2125,7 +2125,7 @@ function applyNotebookUpdate(u) {
     loadNotebooks();
   } else if (type === "member-joined" || type === "member-left") {
     // membership changed — nothing to reload in UI unless we have a members panel open
-  } else if (type === "invite-received" || type === "invite-removed") {
+  } else if (type === "invite-received" || type === "invite-removed" || type === "notebooks-changed") {
     applyInboxEvent(u);
   } else if (type === "folder-update") {
     applyFolderUpdate(u.folderUpdate);
@@ -2136,7 +2136,7 @@ function applyNotebookUpdate(u) {
 
 function applyFolderUpdate(fu) {
   if (!fu) return;
-  loadFolders(activeNotebookId);
+  loadFolders();
 }
 
 function applyNoteUpdate(nu) {
@@ -2147,7 +2147,7 @@ function applyNoteUpdate(nu) {
     if (nu.revision) applyArchivedRevision({ revision: nu.revision, noteId: nu.id });
     return;
   }
-  loadNotes(activeNotebookId);
+  loadNotes();
   if (type === "note-updated" && nu.id === activeNoteId) {
     const noteData = nu.note;
     if (noteData && !isOwnSaveEcho({ updatedBy: noteData.updatedBy, revision: noteData.revision })) {
@@ -2192,10 +2192,10 @@ function handleEvent(msg) {
     }
     if (type === "notebook-created" || type === "notebook-renamed" || type === "notebook-visibility-changed") loadNotebooks();
     else if (type === "notebook-deleted") loadNotebooks();
-    else if (type?.startsWith("folder-")) loadFolders(activeNotebookId);
+    else if (type?.startsWith("folder-")) loadFolders();
     else if (type === "note-revision-archived") applyArchivedRevision(evt);
     else if (type?.startsWith("note-")) {
-      loadNotes(activeNotebookId);
+      loadNotes();
       if (type === "note-updated" && evt.noteId === activeNoteId && !isOwnSaveEcho(evt)) {
         if (dirty) showConflictBanner("Remote changes detected while you were editing.");
         else loadNote(activeNoteId);
@@ -2208,10 +2208,10 @@ function handleEvent(msg) {
   const type = data.type;
   if (type === "notebook-created" || type === "notebook-renamed" || type === "notebook-visibility-changed") loadNotebooks();
   else if (type === "notebook-deleted") loadNotebooks();
-  else if (type?.startsWith("folder-")) loadFolders(activeNotebookId);
+  else if (type?.startsWith("folder-")) loadFolders();
   else if (type === "note-revision-archived") applyArchivedRevision(data);
   else if (type?.startsWith("note-")) {
-    loadNotes(activeNotebookId);
+    loadNotes();
     if (type === "note-updated" && data.noteId === activeNoteId && !isOwnSaveEcho(data)) {
       if (dirty) showConflictBanner("Remote changes detected while you were editing.");
       else loadNote(activeNoteId);
@@ -2345,13 +2345,13 @@ async function loadNotebooks() {
     nb.flagName = entry.flagName;
     nb.flag = `${entry.host}/${entry.flagName}`;
     nb.visibility = entry.visibility || 'private';
-    notebooks[nb.id] = nb;
+    notebooks[nb.flag] = nb;
   });
   renderNotebooks();
   updateHeader();
 }
 
-async function loadFolders(notebookId) {
+async function loadFolders() {
   if (!activeNotebookFlag) return;
   const data = await scry(`/v0/folders/${activeNotebookFlag}`);
   // Only replace the cache when we got fresh data — otherwise preserve what
@@ -2359,7 +2359,7 @@ async function loadFolders(notebookId) {
   if (data) {
     folders = {};
     (data || []).forEach(f => folders[f.id] = f);
-    foldersByNb[notebookId] = { ...folders };
+    foldersByNb[activeNotebookFlag] = { ...folders };
   }
   if (!activeFolderId || !folders[activeFolderId]) {
     const rootFolder = Object.values(folders).find(f => f.name === "/");
@@ -2368,13 +2368,13 @@ async function loadFolders(notebookId) {
   renderItems();
 }
 
-async function loadNotes(notebookId) {
+async function loadNotes() {
   if (!activeNotebookFlag) return;
   const data = await scry(`/v0/notes/${activeNotebookFlag}`);
   if (data) {
     notes = {};
     (data || []).forEach(n => notes[n.id] = n);
-    notesByNb[notebookId] = { ...notes };
+    notesByNb[activeNotebookFlag] = { ...notes };
   }
   renderItems();
   renderBacklinks();
@@ -2413,10 +2413,10 @@ function renderNotebooks() {
   }
   list.sort((a,b) => a.title.localeCompare(b.title)).forEach(nb => {
     const div = document.createElement("div");
-    div.className = "nb-item" + (nb.id === activeNotebookId ? " active" : "");
+    div.className = "nb-item" + (nb.flag === activeNotebookFlag ? " active" : "");
     const lockHtml = nb.visibility === "private" ? `<svg class="icon nb-lock"><use href="#i-lock"/></svg>` : "";
     div.innerHTML = `<span class="nb-icon">${icon('notebook')}</span><span class="nb-name">${esc(nb.title)}</span>${lockHtml}<span class="nb-flag">${esc(nb.flag)}</span>`;
-    div.onclick = () => selectNotebook(nb.id);
+    div.onclick = () => selectNotebook(nb.flag);
     el.appendChild(div);
   });
 }
@@ -2442,7 +2442,7 @@ function updateHeader() {
   const rootId = rootFolderId();
   const isAtRoot = !activeFolderId || activeFolderId === rootId;
   if (isAtRoot) {
-    const nb = notebooks[activeNotebookId];
+    const nb = notebooks[activeNotebookFlag];
     labelEl.textContent = nb?.title || "Notes";
     upBtn.style.display = "none";
     settingsWrap.style.display = "";
@@ -2638,10 +2638,10 @@ function buildZip(entries) {
 async function exportNotebook() {
   closeNotebookSettings();
   if (!activeNotebookId) return;
-  const nb = notebooks[activeNotebookId];
+  const nb = notebooks[activeNotebookFlag];
   if (!nb) return;
-  await loadFolders(activeNotebookId);
-  await loadNotes(activeNotebookId);
+  await loadFolders();
+  await loadNotes();
 
   const rootId = rootFolderId();
   const pathOf = (fid) => {
@@ -2722,7 +2722,7 @@ function triggerImport(isFolder) {
         }
         const text = await file.text();
         const title = file.name.replace(/\.(md|txt|markdown|text)$/i, "");
-        node.push({ title, bodyMd: text });
+        node.push({ title, body: text });
       }
       await pokeNotebook({
         type: "batch-import-tree",
@@ -2734,18 +2734,18 @@ function triggerImport(isFolder) {
       for (const file of mdFiles) {
         const text = await file.text();
         const title = file.name.replace(/\.(md|txt|markdown|text)$/i, "");
-        noteItems.push({ title, bodyMd: text });
+        noteItems.push({ title, body: text });
       }
       await pokeNotebook({
         type: "batch-import",
         folder: folderId,
-        notes: noteItems.map(n => ({ title: n.title, body: n.bodyMd }))
+        notes: noteItems
       });
     }
 
     setTimeout(async () => {
-      await loadFolders(activeNotebookId);
-      await loadNotes(activeNotebookId);
+      await loadFolders();
+      await loadNotes();
       document.getElementById("save-status").textContent = "Imported " + mdFiles.length + " notes";
       setTimeout(() => { document.getElementById("save-status").textContent = ""; }, 3000);
     }, 500);
@@ -2927,21 +2927,21 @@ function inline(s) {
 }
 
 // ── Selection ─────────────────────────────────────────────────────────────
-async function selectNotebook(id) {
+async function selectNotebook(flag) {
   if (!await confirmDirty()) return;
   closeHistoryPanel();
-  const changing = activeNotebookId !== id;
-  activeNotebookId = id;
-  const nb = notebooks[id];
-  activeNotebookFlag = nb ? nb.flag : null;
+  const changing = activeNotebookFlag !== flag;
+  const nb = notebooks[flag];
+  activeNotebookFlag = flag;
+  activeNotebookId = nb ? nb.id : null;
   activeFolderId = null;
   activeNoteId = null;
   if (changing) {
     // Restore from per-notebook caches (populated by prior visits or by the
     // switcher's index build) so the UI paints target-notebook data
     // immediately — even if the fresh scry below fails offline.
-    folders = foldersByNb[id] ? { ...foldersByNb[id] } : {};
-    notes = notesByNb[id] ? { ...notesByNb[id] } : {};
+    folders = foldersByNb[flag] ? { ...foldersByNb[flag] } : {};
+    notes = notesByNb[flag] ? { ...notesByNb[flag] } : {};
   }
   // If we have cached folders, default to root and paint immediately. URL
   // and rest of state stay correct without waiting on the scry.
@@ -2953,7 +2953,7 @@ async function selectNotebook(id) {
   // Fire fresh scries in parallel — they'll re-render when they land. We
   // don't await so navigation feels instant; the cache (if any) is what
   // the user sees in the meantime.
-  Promise.all([loadFolders(id), loadNotes(id)]).catch(() => {});
+  Promise.all([loadFolders(), loadNotes()]).catch(() => {});
   subscribeEvents();
   saveSelection();
   pushRoute();
@@ -3029,14 +3029,14 @@ async function buildSwitcherIndex() {
   // results entirely and only index folders + notes for that notebook.
   const allNbs = Object.values(notebooks);
   const nbs = EMBED_PARAMS.embed
-    ? allNbs.filter(nb => nb.id === activeNotebookId)
+    ? allNbs.filter(nb => nb.flag === activeNotebookFlag)
     : allNbs;
   if (!EMBED_PARAMS.embed) for (const nb of nbs) {
     items.push({
       kind: "notebook",
       label: nb.title || "Untitled notebook",
       subtitle: nb.flag,
-      navigate: () => selectNotebook(nb.id)
+      navigate: () => selectNotebook(nb.flag)
     });
   }
   // Fetch folders + notes for every notebook in parallel.
@@ -3049,12 +3049,12 @@ async function buildSwitcherIndex() {
     ]); } catch (_) { return; }
     // Stash into the per-notebook caches so cross-notebook nav works offline.
     if (fdata) {
-      foldersByNb[nb.id] = {};
-      (fdata || []).forEach(f => foldersByNb[nb.id][f.id] = f);
+      foldersByNb[nb.flag] = {};
+      (fdata || []).forEach(f => foldersByNb[nb.flag][f.id] = f);
     }
     if (ndata) {
-      notesByNb[nb.id] = {};
-      (ndata || []).forEach(n => notesByNb[nb.id][n.id] = n);
+      notesByNb[nb.flag] = {};
+      (ndata || []).forEach(n => notesByNb[nb.flag][n.id] = n);
     }
     const fByNb = {};
     (fdata || []).forEach(f => fByNb[f.id] = f);
@@ -3065,7 +3065,7 @@ async function buildSwitcherIndex() {
         kind: "folder",
         label: f.name,
         subtitle: nbName,
-        navigate: async () => { await selectNotebook(nb.id); navigateToFolder(f.id); }
+        navigate: async () => { await selectNotebook(nb.flag); navigateToFolder(f.id); }
       });
     });
     (ndata || []).forEach(n => {
@@ -3075,7 +3075,7 @@ async function buildSwitcherIndex() {
         kind: "note",
         label: n.title || "Untitled",
         subtitle: nbName + folderPart,
-        navigate: async () => { await selectNotebook(nb.id); await selectNote(n.id); },
+        navigate: async () => { await selectNotebook(nb.flag); await selectNote(n.id); },
         // Rich metadata reused by full-text search
         noteId: n.id,
         notebookId: nb.id,
@@ -3389,7 +3389,7 @@ async function createNoteFromWikiLink(title) {
   if (!folderId) return;
   await pokeNotebook({ type: "create-note", folder: folderId, title, body: "" });
   setTimeout(async () => {
-    await loadNotes(activeNotebookId);
+    await loadNotes();
     // Find the note we just created (most recent with matching title in that folder)
     const candidates = Object.values(notes)
       .filter(n => n.folderId === folderId && (n.title || "").toLowerCase() === title.toLowerCase())
@@ -3993,7 +3993,7 @@ async function newNote() {
 
   // Reload, select the newest note, and focus the editor
   setTimeout(async () => {
-    await loadNotes(activeNotebookId);
+    await loadNotes();
     const inFolder = Object.values(notes).filter(n => n.folderId === activeFolderId);
     const newest = inFolder.sort((a,b) => b.id - a.id)[0];
     if (newest) {
@@ -4046,7 +4046,7 @@ async function triggerAutoCreate() {
     // Capture what the user typed during the create roundtrip
     const pendingBody = editor.value;
     const pendingTitle = titleInput.value;
-    await loadNotes(activeNotebookId);
+    await loadNotes();
     const inFolder = Object.values(notes).filter(n => n.folderId === activeFolderId);
     const newest = inFolder.sort((a,b) => b.id - a.id)[0];
     autoCreating = false;
@@ -4076,9 +4076,10 @@ async function autoSave() {
 
   document.getElementById("save-status").textContent = "Saving\u2026";
 
-  const nb = notebooks[n.notebookId];
-  const isLocal = nb && SHIP && nb.host.replace(/^~/, "") === SHIP.replace(/^~/, "");
-  const sentRev = isLocal ? savedRevision : 0;
+  // Strict revision check on the host — always send the real revision; the
+  // stream keeps subscribers' savedRevision current so this is correct on
+  // both host-owned and subscribed notebooks.
+  const sentRev = savedRevision;
   // Pre-bump savedRevision BEFORE sending so the echoed note-updated event
   // (which may arrive before pokeAction's ack resolves) is recognized as our
   // own save via isOwnSaveEcho's revision check.
@@ -4469,7 +4470,7 @@ function openModal(type) {
     `;
   } else if (type === "rename-notebook") {
     if (!activeNotebookId) return;
-    const nb = notebooks[activeNotebookId];
+    const nb = notebooks[activeNotebookFlag];
     if (!nb) return;
     box.innerHTML = `
       <h3>Rename Notebook</h3>
@@ -4482,7 +4483,7 @@ function openModal(type) {
     box.querySelector("#m-title").addEventListener("keydown", e => { if (e.key==="Enter") renameNotebook(); });
   } else if (type === "invite-ship") {
     if (!activeNotebookId) return;
-    const nb = notebooks[activeNotebookId];
+    const nb = notebooks[activeNotebookFlag];
     if (!nb) return;
     box.innerHTML = `
       <h3>Invite ship</h3>
@@ -4710,8 +4711,8 @@ async function deleteTargetFolder() {
   // If we were inside this folder (or a descendant), navigate up to root
   if (activeFolderId === f.id) navigateToFolder(rootFolderId());
   setTimeout(async () => {
-    await loadFolders(activeNotebookId);
-    await loadNotes(activeNotebookId);
+    await loadFolders();
+    await loadNotes();
   }, 300);
 }
 
@@ -4723,13 +4724,13 @@ async function submitRenameFolder() {
   document.getElementById("modal-backdrop").classList.remove("open");
   await pokeFolderAction(f.id, { type: "rename", name });
   pendingFolderEdit = null;
-  setTimeout(() => loadFolders(activeNotebookId), 300);
+  setTimeout(() => loadFolders(), 300);
 }
 
 async function deleteNotebook() {
   closeNotebookSettings();
   if (!activeNotebookId) return;
-  const nb = notebooks[activeNotebookId];
+  const nb = notebooks[activeNotebookFlag];
   if (!nb) return;
   if (!confirm(`Delete notebook "${nb.title}"? This cannot be undone.`)) return;
   await pokeNotebook({ type: "delete" });
@@ -4748,7 +4749,7 @@ async function deleteNotebook() {
 async function toggleNotebookVisibility() {
   closeNotebookSettings();
   if (!activeNotebookId) return;
-  const nb = notebooks[activeNotebookId];
+  const nb = notebooks[activeNotebookFlag];
   if (!nb) return;
   const next = nb.visibility === "public" ? "private" : "public";
   await pokeNotebook({ type: "visibility", visibility: next });
@@ -4810,7 +4811,7 @@ async function copyActiveFlag() {
 async function leaveRemoteNotebook() {
   closeNotebookSettings();
   if (!activeNotebookId || !activeNotebookFlag) return;
-  const nb = notebooks[activeNotebookId];
+  const nb = notebooks[activeNotebookFlag];
   if (!nb) return;
   if (!confirm(`Leave notebook "${nb.title}"?`)) return;
   const slash = activeNotebookFlag.indexOf("/");
@@ -4854,7 +4855,7 @@ async function createFolder() {
   }
 
   await pokeNotebook({ type: "create-folder", parent: parentFolderId || null, name });
-  setTimeout(() => loadFolders(activeNotebookId), 300);
+  setTimeout(() => loadFolders(), 300);
 }
 
 // ── Keyboard shortcuts ────────────────────────────────────────────────────

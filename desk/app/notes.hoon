@@ -78,7 +78,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'master-merge-nested-acur-v1'
+++  dummy  'batch-import-body-field-v1'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -332,6 +332,8 @@
       (handle-accept-invite flag.act)
     ?:  ?=(%decline-invite -.act)
       (handle-decline-invite flag.act)
+    ?:  ?=(%notify-invite -.act)
+      (handle-notify-invite flag.act title.act src.bowl)
     ::  all other actions are notebook-scoped: [%notebook =flag =a-notebook]
     ?>  ?=(%notebook -.act)
     =/  =flag:notes  flag.act
@@ -429,31 +431,28 @@
   =.  cor
     =/  cmd=command:notes  [flag [%invite who]]
     se-abet:(se-poke:(se-abed:se-core flag) cmd)
-  ::  poke the invitee's notes agent with a notify-invite action
-  ::  We still use a raw notify poke to the invitee. In the nested ACUR
-  ::  scheme this is handled via a direct %notes-action poke (not forwarded
-  ::  as a c-notes — the invitee handles it at the poke dispatch level).
-  =/  notify-act=action:notes  [%notebook flag [%invite who]]
+  ::  poke the invitee's notes agent with a top-level %notify-invite. This
+  ::  is a distinct arm from the notebook-scoped [%invite who]: the invitee
+  ::  doesn't have this notebook in books yet, so a notebook-scoped action
+  ::  would crash dispatch. %notify-invite carries title so the inbox can
+  ::  render it pre-join.
+  =/  notify-act=action:notes  [%notify-invite flag title]
   =/  =wire  /notes/invite/(scot %p who)/(scot %p ship.flag)/[name.flag]
   %-  emit
   [%pass wire %agent [who %notes] %poke notes-action+!>(notify-act)]
 ::
-::  +handle-notify-invite: called when a remote host tells us we've been invited.
-::  In nested ACUR this arrives as [%notebook flag [%invite who]] from the host.
-::  Validated: the sender must be the notebook host.
+::  +handle-notify-invite: called when a remote host pokes us with
+::  [%notify-invite flag title]. The sender must be the notebook host.
 ++  handle-notify-invite
-  |=  [=flag:notes from=ship]
+  |=  [=flag:notes title=@t from=ship]
   ^+  cor
   ?<  =(from our.bowl)
   ?>  =(from ship.flag)
   ?:  (~(has by books.state) flag)  cor
   ?:  (~(has by invites.state) flag)  cor
-  ::  Look up the notebook title from the invite — the host sent us the
-  ::  [%notebook flag [%invite who]] action, so we don't have the title here.
-  ::  We'll record a minimal invite entry with an empty title.
-  =/  info=invite-info:notes  [from now.bowl '']
+  =/  info=invite-info:notes  [from now.bowl title]
   =.  invites.state  (~(put by invites.state) flag info)
-  (give-inbox-received flag from now.bowl '')
+  (give-inbox-received flag from now.bowl title)
 ::
 ::  +handle-accept-invite: user accepted a pending invite
 ++  handle-accept-invite

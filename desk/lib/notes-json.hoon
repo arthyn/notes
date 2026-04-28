@@ -343,6 +343,9 @@
       :-  %decline-invite
       =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) jon)
       [-.raw +.raw]
+        %'notify-invite'
+      =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so] ['title' so]]) jon)
+      [%notify-invite [-.raw +<.raw] +>.raw]
         %'notebook'
       :-  %notebook
       =/  flag-json=(unit json)  (~(get by p.jon) 'flag')
