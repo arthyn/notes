@@ -26,11 +26,60 @@
   ;<  *  bind:m  (do-init dap notes-agent)
   (pure:m ~)
 ::
-::  +nb-flag: flag for notebook n under ship who
+::  +nb-flag: flag for notebook with title+nid under ship who
+::  Applies the same slug algorithm as ++slugify in app/notes.hoon.
 ++  nb-flag
-  |=  [who=ship n=@ud]
+  |=  [who=ship title=@t n=@ud]
   ^-  flag:notes
-  [who (scot %ud n)]
+  [who (slugify-test title n)]
+::
+::  +slugify-test: mirror of ++slugify in app/notes.hoon (same algorithm)
+++  slugify-test
+  |=  [t=@t suffix=@ud]
+  ^-  @tas
+  =/  chars=tape  (trip t)
+  =/  mapped=tape
+    %+  turn  chars
+    |=  c=@t
+    ^-  @t
+    ?:  &((gte c 'a') (lte c 'z'))  c
+    ?:  &((gte c 'A') (lte c 'Z'))  (add c 32)
+    ?:  &((gte c '0') (lte c '9'))  c
+    '-'
+  =/  collapsed=tape
+    %-  flop
+    =|  acc=tape
+    |-  ^+  acc
+    ?~  mapped  acc
+    ?:  &(=('-' i.mapped) ?=(^ acc) =('-' i.acc))
+      $(mapped t.mapped)
+    $(mapped t.mapped, acc [i.mapped acc])
+  =/  ltrimmed=tape
+    |-  ^-  tape
+    ?~  collapsed  ~
+    ?:  =('-' i.collapsed)
+      $(collapsed t.collapsed)
+    collapsed
+  =/  trimmed=tape
+    =/  rev=tape  (flop ltrimmed)
+    =/  rtrimmed=tape
+      |-  ^-  tape
+      ?~  rev  ~
+      ?:  =('-' i.rev)
+        $(rev t.rev)
+      rev
+    (flop rtrimmed)
+  =/  capped=tape  (scag 32 trimmed)
+  =/  base=tape  ?~(capped "note" capped)
+  =/  prefixed=tape
+    ?.  &(?=(^ base) (gte i.base '0') (lte i.base '9'))
+      base
+    (weld "n-" base)
+  =/  raw-suf=tape  (trip (scot %ud suffix))
+  =/  suf-tape=tape
+    %+  skim  raw-suf
+    |=(c=@t !=(c '.'))
+  `@tas`(crip (weld (weld prefixed "-") suf-tape))
 ::
 ::  peek helpers — no return type annotation (avoids form:(mare ,cage) issue)
 ::
@@ -142,7 +191,7 @@
   ;<  =bowl:gall  b  get-bowl
   ;<  caz=(list card)  b  (poke-a [%create-notebook 'My Notebook'])
   ;<  ~  b  (ex-cards-ne caz)
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'My Notebook' 1)
   ;<  root=cage  b  (peek-fld f 2)
   ;<  ~  b  (ex-json root)
   ;<  mbrs=cage  b  (peek-mbrs f)
@@ -157,7 +206,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'Original'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'Original' 1)
   ;<  caz=(list card)  b  (poke-a [%notebook f [%rename 'Renamed']])
   ;<  ~  b  (ex-cards-ne caz)
   ;<  nb=cage  b  (got-peek /x/v0/notebook/(scot %p ship.f)/[name.f])
@@ -172,7 +221,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'ToDelete'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'ToDelete' 1)
   ;<  caz=(list card)  b  (poke-a [%notebook f [%delete ~]])
   ;<  ~  b  (ex-cards-ne caz)
   ;<  res=(unit (unit cage))  b
@@ -188,7 +237,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  caz=(list card)  b  (poke-a [%notebook f [%visibility %public]])
   (ex-cards-ne caz)
 ::
@@ -203,7 +252,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'Open NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'Open NB' 1)
   ;<  *  b  (poke-a [%notebook f [%visibility %public]])
   ;<  *  b  (set-src ~bus)
   ;<  caz=(list card)  b
@@ -223,7 +272,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'Private NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'Private NB' 1)
   ;<  *  b  (set-src ~bus)
   (ex-fail (do-poke %notes-command !>(`command:notes`[%notebook f [%member-join ~]])))
 ::
@@ -236,7 +285,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  caz=(list card)  b  (poke-a [%notebook f [%create-folder `2 'Docs']])
   ;<  ~  b  (ex-cards-ne caz)
   ;<  fld=cage  b  (peek-fld f 3)
@@ -252,7 +301,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-folder `2 'Docs']])
   ;<  caz=(list card)  b  (poke-a [%notebook f [%create-folder `3 'Sub']])
   ;<  ~  b  (ex-cards-ne caz)
@@ -268,7 +317,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-folder `2 'OldName']])
   ;<  caz=(list card)  b  (poke-a [%notebook f [%folder 3 [%rename 'NewName']]])
   (ex-cards-ne caz)
@@ -283,7 +332,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-folder `2 'FolderA']])
   ;<  *  b  (poke-a [%notebook f [%create-folder `2 'FolderB']])
   ;<  caz=(list card)  b  (poke-a [%notebook f [%folder 4 [%move 3]]])
@@ -298,7 +347,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-folder `2 'Empty']])
   ;<  caz=(list card)  b  (poke-a [%notebook f [%folder 3 [%delete %.n]]])
   ;<  ~  b  (ex-cards-ne caz)
@@ -316,7 +365,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-folder `2 'HasNote']])
   ;<  *  b  (poke-a [%notebook f [%create-note 3 'Note' 'body']])
   (ex-fail (poke-a [%notebook f [%folder 3 [%delete %.n]]]))
@@ -330,7 +379,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-folder `2 'HasNote']])
   ;<  *  b  (poke-a [%notebook f [%create-note 3 'Note' 'body']])
   ;<  caz=(list card)  b  (poke-a [%notebook f [%folder 3 [%delete %.y]]])
@@ -353,7 +402,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  caz=(list card)  b  (poke-a [%notebook f [%create-note 2 'Hello' '# Hello']])
   ;<  ~  b  (ex-cards-ne caz)
   ;<  nt=cage  b  (peek-nt f 3)
@@ -368,7 +417,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-note 2 'OldTitle' 'body']])
   ;<  caz=(list card)  b  (poke-a [%notebook f [%note 3 [%rename 'NewTitle']]])
   (ex-cards-ne caz)
@@ -383,7 +432,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-folder `2 'FolderA']])
   ;<  *  b  (poke-a [%notebook f [%create-note 3 'MyNote' 'body']])
   ;<  *  b  (poke-a [%notebook f [%create-folder `2 'FolderB']])
@@ -400,7 +449,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-note 2 'Note' 'v1']])
   ;<  caz=(list card)  b  (poke-a [%notebook f [%note 3 [%update 'v2' 0]]])
   ;<  ~  b  (ex-cards-ne caz)
@@ -417,7 +466,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-note 2 'Note' 'v1']])
   ;<  *  b  (poke-a [%notebook f [%note 3 [%update 'v2' 0]]])
   ;<  *  b  (poke-a [%notebook f [%note 3 [%update 'v3' 1]]])
@@ -436,7 +485,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-note 2 'Note' 'v1']])
   ;<  *  b  (poke-a [%notebook f [%note 3 [%update 'v2' 0]]])
   ::  revision is now 1; expected-revision=0 is stale — must crash
@@ -454,7 +503,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-note 2 'Note' 'initial']])
   ;<  caz=(list card)  b  (poke-a [%notebook f [%note 3 [%update 'first-edit' 0]]])
   (ex-cards-ne caz)
@@ -468,7 +517,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-note 2 'ToDelete' 'body']])
   ;<  caz=(list card)  b  (poke-a [%notebook f [%note 3 [%delete ~]]])
   ;<  ~  b  (ex-cards-ne caz)
@@ -487,7 +536,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   =/  items=(list [title=@t body=@t])
     ~[['Note1' 'body1'] ['Note2' 'body2'] ['Note3' 'body3']]
   ;<  caz=(list card)  b  (poke-a [%notebook f [%batch-import 2 items]])
@@ -509,7 +558,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   =/  tree=(list import-node:notes)
     :~  [%folder 'Sub' ~[[%note 'NoteA' 'bodyA'] [%note 'NoteB' 'bodyB']]]
         [%note 'Root' 'rootbody']
@@ -534,7 +583,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-note 2 'Article' '# Hello']])
   ;<  *  b  (poke-a [%notebook f [%note 3 [%publish '<h1>Hello</h1>']]])
   ;<  pub=cage  b  (got-peek /x/v0/published)
@@ -554,7 +603,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-note 2 'Note' 'v1']])
   ;<  *  b  (poke-a [%notebook f [%note 3 [%update 'v2' 0]]])
   ;<  ~  b  (ex-history-len f 3 1)
@@ -577,7 +626,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-note 2 'Note' 'v1']])
   ;<  *  b  (poke-a [%notebook f [%note 3 [%update 'v2' 0]]])
   ;<  *  b  (poke-a [%notebook f [%note 3 [%update 'v3' 1]]])
@@ -602,7 +651,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-note 2 'Note' 'same']])
   ;<  *  b  (poke-a [%notebook f [%note 3 [%update 'same' 0]]])
   (ex-history-len f 3 0)
@@ -618,7 +667,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-note 2 'Note' 'v1']])
   ;<  *  b  (poke-a [%notebook f [%note 3 [%update 'v2' 0]]])
   ;<  *  b  (poke-a [%notebook f [%note 3 [%update 'v3' 1]]])
@@ -644,7 +693,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-note 2 'Original' 'body']])
   ;<  *  b  (poke-a [%notebook f [%note 3 [%update 'edited' 0]]])
   ::  body update advanced rev to 1; rename must keep it at 1
@@ -672,7 +721,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-note 2 'Note' 'body']])
   (ex-history-len f 3 0)
 ::
@@ -686,7 +735,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  *  b  (poke-a [%create-notebook 'NB'])
-  =/  f=flag:notes  (nb-flag our.bowl 1)
+  =/  f=flag:notes  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-note 2 'Note' 'v1']])
   ;<  *  b  (poke-a [%notebook f [%note 3 [%update 'v2' 0]]])
   ;<  *  b  (poke-a [%notebook f [%note 3 [%update 'v3' 1]]])
@@ -706,20 +755,24 @@
   ^-  form:m
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
-  ::  build a state-8 with one invite pre-seeded; load migrates to state-9
-  =/  remote-flag=flag:notes  [~bus '5']
-  =/  inv=(map flag:notes invite-info:notes)
-    (~(put by *(map flag:notes invite-info:notes)) remote-flag [~bus now.bowl 'RemoteNB'])
+  ::  build a state-8 with one invite pre-seeded; load migrates to state-10.
+  ::  The invite flag [~bus '5'] is not in books, so after migration its
+  ::  name is preserved as a bare atom cast to @tas.
+  =/  v9-flag=flag-v9:notes  [~bus '5']
+  =/  inv=(map flag-v9:notes invite-info:notes)
+    (~(put by *(map flag-v9:notes invite-info:notes)) v9-flag [~bus now.bowl 'RemoteNB'])
   =/  s8=state-8:notes  [%8 ~ 0 ~ ~ inv ~]
   ;<  *  b  (do-load notes-agent `!>(s8))
+  ::  after migration, invite key is [~bus `@tas`'5']
+  =/  remote-flag=flag:notes  [~bus `@tas`'5']
   ::  accept: fires join-remote (emits a card) and removes invite
   ;<  caz=(list card)  b  (poke-a [%accept-invite remote-flag])
   ;<  ~  b  (ex-cards-ne caz)
   ::  invites map is now empty
   ;<  sv=vase  b  get-save
-  =/  s9-after=state-9:notes  !<(state-9:notes sv)
+  =/  s10-after=state-10:notes  !<(state-10:notes sv)
   |=  s=state
-  ?.  =(~ invites.s9-after)
+  ?.  =(~ invites.s10-after)
     |+['expected empty invites map after accept-invite']~
   &+[~ s]
 ::
@@ -731,26 +784,28 @@
   ^-  form:m
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
-  =/  remote-flag=flag:notes  [~bus '5']
-  =/  inv=(map flag:notes invite-info:notes)
-    (~(put by *(map flag:notes invite-info:notes)) remote-flag [~bus now.bowl 'RemoteNB'])
+  =/  v9-flag=flag-v9:notes  [~bus '5']
+  =/  inv=(map flag-v9:notes invite-info:notes)
+    (~(put by *(map flag-v9:notes invite-info:notes)) v9-flag [~bus now.bowl 'RemoteNB'])
   =/  s8=state-8:notes  [%8 ~ 0 ~ ~ inv ~]
   ;<  *  b  (do-load notes-agent `!>(s8))
+  =/  remote-flag=flag:notes  [~bus `@tas`'5']
   ;<  *  b  (poke-a [%decline-invite remote-flag])
   ;<  sv=vase  b  get-save
-  =/  s9-after=state-9:notes  !<(state-9:notes sv)
+  =/  s10-after=state-10:notes  !<(state-10:notes sv)
   |=  s=state
-  ?.  =(~ invites.s9-after)
+  ?.  =(~ invites.s10-after)
     |+['expected empty invites map after decline-invite']~
   &+[~ s]
 ::
-::  ====  test-migrate-state-7-to-9  ====
-::  Hand-built state-7 through on-load; result tag must be %9.
+::  ====  test-migrate-state-7-to-10  ====
+::  Hand-built state-7 through on-load; result tag must be %10.
 ::  - updated-by backfilled on notebook from created-by
 ::  - pub log truncated to empty
-::  - invites preserved in state-9
+::  - invites preserved in state-10
 ::  - history migrated into per-notebook-state
-++  test-migrate-state-7-to-9
+::  - flag name slugified: 'S7-NB' + nid=1 → 's7-nb-1'
+++  test-migrate-state-7-to-10
   %-  eval-mare
   =/  m  (mare ,~)
   =*  b  bind:m
@@ -763,36 +818,38 @@
     (~(put by *notebook-members:notes) ~zod %owner)
   =/  nb-s=notebook-state-v0:notes
     [nb mbrs (~(put by *(map @ud folder-v0:notes)) 2 rf) ~]
-  =/  f=flag:notes  [~zod '1']
-  =/  empty-bks  *(map flag:notes [net=net-v0:notes notebook-state=notebook-state-v0:notes])
+  =/  f=flag-v9:notes  [~zod '1']
+  =/  empty-bks  *(map flag-v9:notes [net=net-v0:notes notebook-state=notebook-state-v0:notes])
   =/  bks  (~(put by empty-bks) f [[%pub *] nb-s])
-  =/  empty-hist  *(map [=flag:notes note-id=@ud] (list note-revision:notes))
+  =/  empty-hist  *(map [=flag-v9:notes note-id=@ud] (list note-revision:notes))
   =/  hist  (~(put by empty-hist) [[f 99]] ~[[0 *@da ~zod 'old' 'old-body']])
-  =/  inv=(map flag:notes invite-info:notes)
-    (~(put by *(map flag:notes invite-info:notes)) [~bus '3'] [~bus *@da 'invite'])
+  =/  inv=(map flag-v9:notes invite-info:notes)
+    (~(put by *(map flag-v9:notes invite-info:notes)) [~bus '3'] [~bus *@da 'invite'])
   =/  s7=state-7:notes
     [%7 bks 2 ~ ~ inv hist]
   ;<  *  b  (do-load notes-agent `!>(s7))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%9))
-  =/  s9=state-9:notes  !<(state-9:notes sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
+  =/  s10=state-10:notes  !<(state-10:notes sv)
+  ::  expected slug for [~zod '1'] with title 'S7-NB' nid=1 → 's7-nb-1'
+  =/  new-f=flag:notes  [~zod (slugify-test 'S7-NB' 1)]
   |=  s=state
   ::  invites preserved at top level
-  ?.  =(1 ~(wyt by invites.s9))
-    |+['expected invites preserved after state-7→9 migration']~
-  ::  pub log truncated; notebook reachable
-  =/  entry=[=net:notes =notebook-state:notes]  (~(got by books.s9) f)
+  ?.  =(1 ~(wyt by invites.s10))
+    |+['expected invites preserved after state-7→10 migration']~
+  ::  pub log truncated; notebook reachable under new slug
+  =/  entry=[=net:notes =notebook-state:notes]  (~(got by books.s10) new-f)
   ?.  ?=(%pub -.net.entry)
     |+['expected %pub net']~
   ?.  =(~ (tap:log-on:notes log.net.entry))
-    |+['expected empty pub log after state-7→9 migration']~
+    |+['expected empty pub log after state-7→10 migration']~
   ::  history migrated into per-notebook-state (one entry keyed by 99)
   ?.  =(1 ~(wyt by history.notebook-state.entry))
-    |+['expected per-notebook history after state-7→9 migration']~
+    |+['expected per-notebook history after state-7→10 migration']~
   &+[~ s]
 ::
-::  ====  test-migrate-state-6-to-9  ====
-++  test-migrate-state-6-to-9
+::  ====  test-migrate-state-6-to-10  ====
+++  test-migrate-state-6-to-10
   %-  eval-mare
   =/  m  (mare ,~)
   =*  b  bind:m
@@ -801,10 +858,11 @@
   =/  s6=state-6:notes  [%6 ~ 0 ~ ~ ~]
   ;<  *  b  (do-load notes-agent `!>(s6))
   ;<  sv=vase  b  get-save
-  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%9))
+  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
 ::
 ::  ====  test-migrate-state-6-preserves-notebook  ====
 ::  state-6 with one notebook migrates and the notebook is reachable.
+::  After migration title 'Migrated' + nid=1 → slug 'migrated-1'.
 ++  test-migrate-state-6-preserves-notebook
   %-  eval-mare
   =/  m  (mare ,~)
@@ -817,16 +875,18 @@
     (~(put by *notebook-members:notes) ~zod %owner)
   =/  nb-s=notebook-state-v0:notes
     [nb mbrs (~(put by *(map @ud folder-v0:notes)) 2 rf) ~]
-  =/  f=flag:notes  [~zod '1']
-  =/  empty-bks  *(map flag:notes [net=net-v0:notes notebook-state=notebook-state-v0:notes])
+  =/  f=flag-v9:notes  [~zod '1']
+  =/  empty-bks  *(map flag-v9:notes [net=net-v0:notes notebook-state=notebook-state-v0:notes])
   =/  bks  (~(put by empty-bks) f [[%pub *] nb-s])
   =/  s6=state-6:notes  [%6 bks 2 ~ ~ ~]
   ;<  *  b  (do-load notes-agent `!>(s6))
-  ;<  nb-cag=cage  b  (got-peek /x/v0/notebook/(scot %p ~zod)/'1')
+  ::  notebook now lives under slug 'migrated-1'
+  =/  new-slug=@tas  (slugify-test 'Migrated' 1)
+  ;<  nb-cag=cage  b  (got-peek /x/v0/notebook/(scot %p ~zod)/[new-slug])
   (ex-json nb-cag)
 ::
-::  ====  test-migrate-state-3-to-9  ====
-++  test-migrate-state-3-to-9
+::  ====  test-migrate-state-3-to-10  ====
+++  test-migrate-state-3-to-10
   %-  eval-mare
   =/  m  (mare ,~)
   =*  b  bind:m
@@ -838,17 +898,17 @@
     (~(put by *notebook-members:notes) ~zod %owner)
   =/  nb-s=notebook-state-v0:notes
     [nb mbrs (~(put by *(map @ud folder-v0:notes)) 2 rf) ~]
-  =/  f=flag:notes  [~zod '1']
-  =/  empty-bks  *(map flag:notes [net=net-v0:notes notebook-state=notebook-state-v0:notes])
+  =/  f=flag-v9:notes  [~zod '1']
+  =/  empty-bks  *(map flag-v9:notes [net=net-v0:notes notebook-state=notebook-state-v0:notes])
   =/  bks  (~(put by empty-bks) f [[%pub *] nb-s])
   =/  s3=state-3:notes  [%3 bks 2 ~]
   ;<  *  b  (do-load notes-agent `!>(s3))
   ;<  sv=vase  b  get-save
-  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%9))
+  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
 ::
-::  ====  test-migrate-state-2-to-9  ====
-::  state-2 published (bare @ud key) is dropped; published in state-9 is empty.
-++  test-migrate-state-2-to-9
+::  ====  test-migrate-state-2-to-10  ====
+::  state-2 published (bare @ud key) is dropped; published in state-10 is empty.
+++  test-migrate-state-2-to-10
   %-  eval-mare
   =/  m  (mare ,~)
   =*  b  bind:m
@@ -860,14 +920,14 @@
     (~(put by *notebook-members:notes) ~zod %owner)
   =/  nb-s=notebook-state-v0:notes
     [nb mbrs (~(put by *(map @ud folder-v0:notes)) 2 rf) ~]
-  =/  f=flag:notes  [~zod '1']
-  =/  empty-bks  *(map flag:notes [net=net-v0:notes notebook-state=notebook-state-v0:notes])
+  =/  f=flag-v9:notes  [~zod '1']
+  =/  empty-bks  *(map flag-v9:notes [net=net-v0:notes notebook-state=notebook-state-v0:notes])
   =/  bks  (~(put by empty-bks) f [[%pub *] nb-s])
   =/  s2=state-2:notes
     [%2 bks 2 (~(put by *(map @ud @t)) 1 '<h1>Old</h1>')]
   ;<  *  b  (do-load notes-agent `!>(s2))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%9))
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
   ;<  pub=cage  b  (got-peek /x/v0/published)
   ;<  ~  b  (ex-json pub)
   =/  jv=json  !<(json q.pub)
@@ -876,8 +936,8 @@
     |+['expected empty json array for published after state-2 migration']~
   &+[~ s]
 ::
-::  ====  test-migrate-state-1-to-9  ====
-++  test-migrate-state-1-to-9
+::  ====  test-migrate-state-1-to-10  ====
+++  test-migrate-state-1-to-10
   %-  eval-mare
   =/  m  (mare ,~)
   =*  b  bind:m
@@ -889,16 +949,17 @@
     (~(put by *notebook-members:notes) ~zod %owner)
   =/  nb-s=notebook-state-v0:notes
     [nb mbrs (~(put by *(map @ud folder-v0:notes)) 2 rf) ~]
-  =/  f=flag:notes  [~zod '1']
-  =/  empty-bks  *(map flag:notes [net=net-v0:notes notebook-state=notebook-state-v0:notes])
+  =/  f=flag-v9:notes  [~zod '1']
+  =/  empty-bks  *(map flag-v9:notes [net=net-v0:notes notebook-state=notebook-state-v0:notes])
   =/  bks  (~(put by empty-bks) f [[%pub *] nb-s])
   =/  s1=state-1:notes  [%1 bks 2]
   ;<  *  b  (do-load notes-agent `!>(s1))
   ;<  sv=vase  b  get-save
-  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%9))
+  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
 ::
 ::  ====  test-migrate-state-4-backfills-updated-by  ====
 ::  state-4: notebook and folders lack updated-by; migration backfills from created-by.
+::  After migration to state-10, flag 'S4-NB' + nid=1 → 's4-nb-1'.
 ++  test-migrate-state-4-backfills-updated-by
   %-  eval-mare
   =/  m  (mare ,~)
@@ -921,15 +982,16 @@
     (~(put by *(map @ud note:notes)) 4 nt)
   =/  nb-s=notebook-state-v0:notes
     [nb mbrs fldmap ntmap]
-  =/  f=flag:notes  [~zod '1']
-  =/  empty-bks  *(map flag:notes [net=net-v0:notes notebook-state=notebook-state-v0:notes])
+  =/  f=flag-v9:notes  [~zod '1']
+  =/  empty-bks  *(map flag-v9:notes [net=net-v0:notes notebook-state=notebook-state-v0:notes])
   =/  bks  (~(put by empty-bks) f [[%pub *] nb-s])
   =/  s4=state-4:notes  [%4 bks 4 ~ ~]
   ;<  *  b  (do-load notes-agent `!>(s4))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%9))
-  =/  s9=state-9:notes  !<(state-9:notes sv)
-  =/  entry=[=net:notes =notebook-state:notes]  (~(got by books.s9) f)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
+  =/  s10=state-10:notes  !<(state-10:notes sv)
+  =/  new-f=flag:notes  [~zod (slugify-test 'S4-NB' 1)]
+  =/  entry=[=net:notes =notebook-state:notes]  (~(got by books.s10) new-f)
   =/  migrated-nb-s=notebook-state:notes  notebook-state.entry
   |=  s=state
   ?.  =(~nec updated-by.notebook.migrated-nb-s)
@@ -945,17 +1007,18 @@
     |+['expected note updated-by preserved (~bus)']~
   &+[~ s]
 ::
-::  ====  test-migrate-state-8-to-9  ====
+::  ====  test-migrate-state-8-to-10  ====
 ::  Hand-built state-8 with one notebook, top-level visibilities and history.
-::  After load: state-9, visibility + history embedded in notebook-state,
+::  After load: state-10, visibility + history embedded in notebook-state,
 ::  top-level visibilities/history gone.
-++  test-migrate-state-8-to-9
+::  Flag 'S8-NB' + nid=1 → slug 's8-nb-1'.
+++  test-migrate-state-8-to-10
   %-  eval-mare
   =/  m  (mare ,~)
   =*  b  bind:m
   ^-  form:m
   ;<  ~  b  init-zod
-  =/  f=flag:notes  [~zod '1']
+  =/  f=flag-v9:notes  [~zod '1']
   ::  build a minimal notebook-state-v8 entry
   =/  nb=notebook:notes  [1 'S8-NB' ~zod *@da *@da ~zod]
   =/  rf=folder:notes    [2 1 '/' ~ ~zod *@da *@da ~zod]
@@ -965,31 +1028,32 @@
     (~(put by *(map @ud folder:notes)) 2 rf)
   =/  nbs8=notebook-state-v8:notes  [nb mbrs fldmap ~]
   ::  top-level visibility + history
-  =/  vis-map=(map flag:notes visibility:notes)
-    (~(put by *(map flag:notes visibility:notes)) f %public)
+  =/  vis-map=(map flag-v9:notes visibility:notes)
+    (~(put by *(map flag-v9:notes visibility:notes)) f %public)
   =/  rev=note-revision:notes  [0 *@da ~zod 'old' 'old-body']
-  =/  hist-key=[=flag:notes note-id=@ud]  [f 5]
-  =/  hist-map=(map [=flag:notes note-id=@ud] (list note-revision:notes))
-    (~(put by *(map [=flag:notes note-id=@ud] (list note-revision:notes))) hist-key ~[rev])
-  =/  empty-bks  *(map flag:notes [net=net:notes notebook-state-v8=notebook-state-v8:notes])
+  =/  hist-key=[=flag-v9:notes note-id=@ud]  [f 5]
+  =/  hist-map=(map [=flag-v9:notes note-id=@ud] (list note-revision:notes))
+    (~(put by *(map [=flag-v9:notes note-id=@ud] (list note-revision:notes))) hist-key ~[rev])
+  =/  empty-bks  *(map flag-v9:notes [net=net:notes notebook-state-v8=notebook-state-v8:notes])
   =/  bks  (~(put by empty-bks) f [[%pub *log:notes] nbs8])
   =/  s8=state-8:notes  [%8 bks 2 ~ vis-map ~ hist-map]
   ;<  *  b  (do-load notes-agent `!>(s8))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%9))
-  =/  s9=state-9:notes  !<(state-9:notes sv)
-  =/  entry=[=net:notes =notebook-state:notes]  (~(got by books.s9) f)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
+  =/  s10=state-10:notes  !<(state-10:notes sv)
+  =/  new-f=flag:notes  [~zod (slugify-test 'S8-NB' 1)]
+  =/  entry=[=net:notes =notebook-state:notes]  (~(got by books.s10) new-f)
   |=  s=state
   ::  visibility embedded in notebook-state
   ?.  =(%public visibility.notebook-state.entry)
-    |+['expected visibility=%public in notebook-state after state-8→9']~
+    |+['expected visibility=%public in notebook-state after state-8→10']~
   ::  history embedded in notebook-state, keyed by note-id=5
   ?.  =(1 ~(wyt by history.notebook-state.entry))
-    |+['expected 1 history entry in notebook-state after state-8→9']~
+    |+['expected 1 history entry in notebook-state after state-8→10']~
   =/  revs=(list note-revision:notes)
     (fall (~(get by history.notebook-state.entry) 5) ~)
   ?.  =(`(list note-revision:notes)`~[rev] revs)
-    |+['expected correct history revision after state-8→9']~
+    |+['expected correct history revision after state-8→10']~
   &+[~ s]
 ::
 ::  ====  JSON wire-format tests  ============================================
@@ -1028,7 +1092,7 @@
         ['name' [%s 'foo']]
     ==
   =/  parsed=action:notes  (action:dejs:notes-json jon)
-  =/  expected=action:notes  [%join [~zod 'foo']]
+  =/  expected=action:notes  [%join [~zod %foo]]
   (ex-equal !>(parsed) !>(expected))
 ::
 ::  ====  test-json-decode-accept-invite  ====
@@ -1043,7 +1107,7 @@
         ['name' [%s 'shared']]
     ==
   =/  parsed=action:notes  (action:dejs:notes-json jon)
-  =/  expected=action:notes  [%accept-invite [~bus 'shared']]
+  =/  expected=action:notes  [%accept-invite [~bus %shared]]
   (ex-equal !>(parsed) !>(expected))
 ::
 ::  Note: %notify-invite moved from a-notes to c-notes (it's a cross-ship
@@ -1069,7 +1133,7 @@
         ['action' inner]
     ==
   =/  parsed=action:notes  (action:dejs:notes-json jon)
-  =/  expected=action:notes  [%notebook [~zod 'foo'] [%rename 'New Name']]
+  =/  expected=action:notes  [%notebook [~zod %foo] [%rename 'New Name']]
   (ex-equal !>(parsed) !>(expected))
 ::
 ::  ====  test-json-decode-folder-rename-nested  ====
@@ -1097,7 +1161,7 @@
     ==
   =/  parsed=action:notes  (action:dejs:notes-json jon)
   =/  expected=action:notes
-    [%notebook [~zod 'foo'] [%folder 7 [%rename 'docs']]]
+    [%notebook [~zod %foo] [%folder 7 [%rename 'docs']]]
   (ex-equal !>(parsed) !>(expected))
 ::
 ::  ====  test-json-decode-note-update-nested  ====
@@ -1125,7 +1189,7 @@
     ==
   =/  parsed=action:notes  (action:dejs:notes-json jon)
   =/  expected=action:notes
-    [%notebook [~zod 'foo'] [%note 12 [%update '# Hello' 3]]]
+    [%notebook [~zod %foo] [%note 12 [%update '# Hello' 3]]]
   (ex-equal !>(parsed) !>(expected))
 ::
 ::  ====  test-json-decode-batch-import-flat  ====
@@ -1153,7 +1217,7 @@
   =/  parsed=action:notes  (action:dejs:notes-json jon)
   =/  expected=action:notes
     :*  %notebook
-        [~zod 'foo']
+        [~zod %foo]
         :*  %batch-import
             2
             ~[[title='a' body='A body'] [title='b' body='B body']]
@@ -1190,7 +1254,7 @@
   =/  parsed=action:notes  (action:dejs:notes-json jon)
   =/  expected=action:notes
     :*  %notebook
-        [~zod 'foo']
+        [~zod %foo]
         :*  %batch-import-tree
             2
             ~[[%folder 'sub' ~[[%note 'README' 'hello']]]]
@@ -1218,7 +1282,7 @@
     ==
   =/  parsed=action:notes  (action:dejs:notes-json jon)
   =/  expected=action:notes
-    [%notebook [~zod 'foo'] [%create-folder ~ 'docs']]
+    [%notebook [~zod %foo] [%create-folder ~ 'docs']]
   (ex-equal !>(parsed) !>(expected))
 ::
 ::  ====  test-json-decode-create-folder-with-parent  ====
@@ -1240,8 +1304,70 @@
     ==
   =/  parsed=action:notes  (action:dejs:notes-json jon)
   =/  expected=action:notes
-    [%notebook [~zod 'foo'] [%create-folder `2 'subdir']]
+    [%notebook [~zod %foo] [%create-folder `2 'subdir']]
   (ex-equal !>(parsed) !>(expected))
+::
+::  ====  test-migrate-state-9-to-10  ====
+::  Hand-built state-9 with two notebooks: one local, one subscriber.
+::  After load: state-10 with re-slugged flags.
+::  Local:  flag-v9 [~zod '11'] title='My First' nid=11 → 'my-first-11'
+::  Remote: flag-v9 [~bus '22'] title='Bar Book' nid=22 → 'bar-book-22'
+++  test-migrate-state-9-to-10
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ::  build local notebook (hosted by us)
+  =/  nb-local=notebook:notes  [11 'My First' ~zod *@da *@da ~zod]
+  =/  rf-local=folder:notes    [12 11 '/' ~ ~zod *@da *@da ~zod]
+  =/  mbrs-local=members:notes
+    (~(put by *members:notes) ~zod %owner)
+  =/  flds-local=(map @ud folder:notes)
+    (~(put by *(map @ud folder:notes)) 12 rf-local)
+  =/  nbs-local=notebook-state:notes
+    [nb-local mbrs-local %private flds-local ~ ~]
+  ::  build subscriber notebook (hosted by ~bus)
+  =/  nb-remote=notebook:notes  [22 'Bar Book' ~bus *@da *@da ~bus]
+  =/  rf-remote=folder:notes    [23 22 '/' ~ ~bus *@da *@da ~bus]
+  =/  flds-remote=(map @ud folder:notes)
+    (~(put by *(map @ud folder:notes)) 23 rf-remote)
+  =/  nbs-remote=notebook-state:notes
+    [nb-remote *members:notes %private flds-remote ~ ~]
+  ::  state-9 books map uses flag-v9
+  =/  fl-local=flag-v9:notes   [~zod '11']
+  =/  fl-remote=flag-v9:notes  [~bus '22']
+  =/  net-local=net:notes   [%pub *log:notes]
+  =/  net-remote=net:notes  [%sub *@da |]
+  =/  bks=(map flag-v9:notes [=net:notes =notebook-state:notes])
+    =/  m0=(map flag-v9:notes [=net:notes =notebook-state:notes])  ~
+    =.  m0  (~(put by m0) fl-local [net-local nbs-local])
+    =.  m0  (~(put by m0) fl-remote [net-remote nbs-remote])
+    m0
+  ::  also populate a published entry keyed by fl-local
+  =/  pub-map=(map [=flag-v9:notes note-id=@ud] @t)
+    (~(put by *(map [=flag-v9:notes note-id=@ud] @t)) [fl-local 99] '<h1>Hi</h1>')
+  =/  s9=state-9:notes  [%9 bks 23 pub-map ~]
+  ;<  *  b  (do-load notes-agent `!>(s9))
+  ;<  sv=vase  b  get-save
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
+  =/  s10=state-10:notes  !<(state-10:notes sv)
+  ::  expected new flags after slugify
+  =/  new-fl-local=flag:notes   [~zod (slugify-test 'My First' 11)]
+  =/  new-fl-remote=flag:notes  [~bus (slugify-test 'Bar Book' 22)]
+  |=  s=state
+  ::  both notebooks must be reachable under new flags
+  ?.  (~(has by books.s10) new-fl-local)
+    |+['expected local notebook under new slug after 9→10 migration']~
+  ?.  (~(has by books.s10) new-fl-remote)
+    |+['expected remote notebook under new slug after 9→10 migration']~
+  ::  published entry re-keyed to new local flag
+  ?.  (~(has by published.s10) [new-fl-local 99])
+    |+['expected published entry re-keyed after 9→10 migration']~
+  ::  old flags must be gone
+  ?.  !(~(has by books.s10) [~zod `@tas`'11'])
+    |+['expected old flag-v9 key gone after 9→10 migration']~
+  &+[~ s]
 ::
 ::  ====  JSON encoder tests  ===============================================
 ::
@@ -1255,7 +1381,7 @@
   =/  nb=notebook:notes
     [1 'Test' ~zod ~1970.1.1 ~1970.1.1 ~zod]
   =/  nb-s=notebook-state:notes  [nb ~ %private ~ ~ ~]
-  =/  res=response:notes  [%snapshot [~zod 'foo'] %public nb-s]
+  =/  res=response:notes  [%snapshot [~zod %foo] %public nb-s]
   =/  jon=json  (response:enjs:notes-json res)
   ?.  ?=([%o *] jon)
     |+['expected json object']~

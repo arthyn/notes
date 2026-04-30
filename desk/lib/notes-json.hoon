@@ -330,19 +330,19 @@
         %'join'
       :-  %join
       =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) jon)
-      [-.raw +.raw]
+      [-.raw `@tas`+.raw]
         %'leave'
       :-  %leave
       =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) jon)
-      [-.raw +.raw]
+      [-.raw `@tas`+.raw]
         %'accept-invite'
       :-  %accept-invite
       =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) jon)
-      [-.raw +.raw]
+      [-.raw `@tas`+.raw]
         %'decline-invite'
       :-  %decline-invite
       =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) jon)
-      [-.raw +.raw]
+      [-.raw `@tas`+.raw]
         %'notebook'
       :-  %notebook
       =/  flag-json=(unit json)  (~(get by p.jon) 'flag')
@@ -355,7 +355,7 @@
         =/  idx  (find "/" raw-tape)
         ?>  ?=(^ idx)
         =/  ship-text=@t  (crip (scag u.idx raw-tape))
-        =/  name-text=@t  (crip (slag +(u.idx) raw-tape))
+        =/  name-text=@tas  `@tas`(crip (slag +(u.idx) raw-tape))
         [(slav %p ship-text) name-text]
       [flag (a-notebook u.act-json)]
     ==

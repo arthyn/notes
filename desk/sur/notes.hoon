@@ -9,8 +9,10 @@
 +$  visibility
   ?(%public %private)
 ::
-::  $flag: global notebook identity (ship + name)
-+$  flag  [=ship name=@t]
+::  $flag: global notebook identity (ship + slug term)
++$  flag  [=ship name=@tas]
+::  $flag-v9: legacy flag type used by state-1..9 (name was @t cord)
++$  flag-v9  [=ship name=@t]
 ::
 ::  $notebook: top-level container
 ::
@@ -248,26 +250,36 @@
 ::  Versioned state — newest first
 ::  ============================================================
 ::
-::  state-9: current — visibility + history moved per-notebook; members renamed
-+$  state-9  ::  current
-  $:  %9
+::  state-10: current — flag.name tightened to @tas slug
++$  state-10
+  $:  %10
       books=(map flag [=net =notebook-state])
       next-id=@ud
       published=(map [=flag note-id=@ud] @t)
       invites=(map flag invite-info)
   ==
 ::
-+$  state  state-9
++$  state  state-10
+::
+::  state-9: visibility + history moved per-notebook; members renamed.
+::  Uses flag-v9 (name=@t) in map keys — stored atoms weren't valid @tas.
++$  state-9
+  $:  %9
+      books=(map flag-v9 [=net =notebook-state])
+      next-id=@ud
+      published=(map [=flag-v9 note-id=@ud] @t)
+      invites=(map flag-v9 invite-info)
+  ==
 ::
 ::  state-8: adds updated-by, u-notebook log; visibilities + history at top level
 +$  state-8
   $:  %8
-      books=(map flag [=net =notebook-state-v8])
+      books=(map flag-v9 [=net =notebook-state-v8])
       next-id=@ud
-      published=(map [=flag note-id=@ud] @t)
-      visibilities=(map flag visibility)
-      invites=(map flag invite-info)
-      history=(map [=flag note-id=@ud] (list note-revision))
+      published=(map [=flag-v9 note-id=@ud] @t)
+      visibilities=(map flag-v9 visibility)
+      invites=(map flag-v9 invite-info)
+      history=(map [=flag-v9 note-id=@ud] (list note-revision))
   ==
 ::
 ::  Legacy entity types — for migrating states 0-7 which lack updated-by
@@ -312,56 +324,56 @@
 ::  Uses notebook-state-v0 since notebook and folder lacked updated-by.
 +$  state-7
   $:  %7
-      books=(map flag [net=net-v0 notebook-state=notebook-state-v0])
+      books=(map flag-v9 [net=net-v0 notebook-state=notebook-state-v0])
       next-id=@ud
-      published=(map [=flag note-id=@ud] @t)
-      visibilities=(map flag visibility)
-      invites=(map flag invite-info)
-      history=(map [=flag note-id=@ud] (list note-revision))
+      published=(map [=flag-v9 note-id=@ud] @t)
+      visibilities=(map flag-v9 visibility)
+      invites=(map flag-v9 invite-info)
+      history=(map [=flag-v9 note-id=@ud] (list note-revision))
   ==
 ::
 ::  state-6: invites carry notebook title.
 ::  Also uses v0 types for books.
 +$  state-6
   $:  %6
-      books=(map flag [net=net-v0 notebook-state=notebook-state-v0])
+      books=(map flag-v9 [net=net-v0 notebook-state=notebook-state-v0])
       next-id=@ud
-      published=(map [=flag note-id=@ud] @t)
-      visibilities=(map flag visibility)
-      invites=(map flag invite-info)
+      published=(map [=flag-v9 note-id=@ud] @t)
+      visibilities=(map flag-v9 visibility)
+      invites=(map flag-v9 invite-info)
   ==
 ::
 ::  state-5: pending invites with shape [from sent-at] — kept for migration
 +$  state-5
   $:  %5
-      books=(map flag [net=net-v0 notebook-state=notebook-state-v0])
+      books=(map flag-v9 [net=net-v0 notebook-state=notebook-state-v0])
       next-id=@ud
-      published=(map [=flag note-id=@ud] @t)
-      visibilities=(map flag visibility)
-      invites=(map flag invite-info-5)
+      published=(map [=flag-v9 note-id=@ud] @t)
+      visibilities=(map flag-v9 visibility)
+      invites=(map flag-v9 invite-info-5)
   ==
 ::
 ::  state-4: adds per-notebook visibility
 +$  state-4
   $:  %4
-      books=(map flag [net=net-v0 notebook-state=notebook-state-v0])
+      books=(map flag-v9 [net=net-v0 notebook-state=notebook-state-v0])
       next-id=@ud
-      published=(map [=flag note-id=@ud] @t)
-      visibilities=(map flag visibility)
+      published=(map [=flag-v9 note-id=@ud] @t)
+      visibilities=(map flag-v9 visibility)
   ==
 ::
 ::  state-3: published keyed by (flag, note-id)
 +$  state-3
   $:  %3
-      books=(map flag [net=net-v0 notebook-state=notebook-state-v0])
+      books=(map flag-v9 [net=net-v0 notebook-state=notebook-state-v0])
       next-id=@ud
-      published=(map [=flag note-id=@ud] @t)
+      published=(map [=flag-v9 note-id=@ud] @t)
   ==
 ::
 ::  state-2: adds published notes cache keyed only by note-id
 +$  state-2
   $:  %2
-      books=(map flag [net=net-v0 notebook-state=notebook-state-v0])
+      books=(map flag-v9 [net=net-v0 notebook-state=notebook-state-v0])
       next-id=@ud
       published=(map @ud @t)
   ==
@@ -369,7 +381,7 @@
 ::  state-1: dual-mode host/subscriber state
 +$  state-1
   $:  %1
-      books=(map flag [net=net-v0 notebook-state=notebook-state-v0])
+      books=(map flag-v9 [net=net-v0 notebook-state=notebook-state-v0])
       next-id=@ud
   ==
 ::

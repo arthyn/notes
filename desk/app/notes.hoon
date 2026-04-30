@@ -7,7 +7,7 @@
 ::
 |%
 +$  card  card:agent:gall
-+$  current-state  state-9:notes
++$  current-state  state-10:notes
 --
 ::
 =|  current-state
@@ -78,12 +78,77 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'state-9-per-nb-fields-v1'
+++  dummy  'state-10-flag-tas-slug-v1'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
 ++  emil  |=(caz=(list card) cor(cards (welp (flop caz) cards)))
 ++  give  |=(=gift:agent:gall (emit %give gift))
+::
+::  +slugify: convert a title cord + numeric suffix into a valid @tas term.
+::  Algorithm:
+::  1. Lowercase all chars; map non-[a-z0-9] to '-'
+::  2. Collapse consecutive '-' into one
+::  3. Trim leading and trailing '-'
+::  4. Cap at 32 chars
+::  5. Default to "note" if empty
+::  6. Prefix "n-" if first char is a digit
+::  7. Append "-{suffix}" (strip dots from scot %ud output)
+++  slugify
+  |=  [t=@t suffix=@ud]
+  ^-  @tas
+  =/  chars=tape  (trip t)
+  ::  step 1: map each char to lowercase letter, digit, or '-'
+  =/  mapped=tape
+    %+  turn  chars
+    |=  c=@t
+    ^-  @t
+    ?:  &((gte c 'a') (lte c 'z'))  c
+    ?:  &((gte c 'A') (lte c 'Z'))  (add c 32)
+    ?:  &((gte c '0') (lte c '9'))  c
+    '-'
+  ::  step 2: collapse consecutive '-' into one
+  =/  collapsed=tape
+    %-  flop
+    =|  acc=tape
+    |-  ^+  acc
+    ?~  mapped  acc
+    ?:  &(=('-' i.mapped) ?=(^ acc) =('-' i.acc))
+      $(mapped t.mapped)
+    $(mapped t.mapped, acc [i.mapped acc])
+  ::  step 3: trim leading '-'
+  =/  ltrimmed=tape
+    |-  ^-  tape
+    ?~  collapsed  ~
+    ?:  =('-' i.collapsed)
+      $(collapsed t.collapsed)
+    collapsed
+  ::  step 3b: trim trailing '-'
+  =/  trimmed=tape
+    =/  rev=tape  (flop ltrimmed)
+    =/  rtrimmed=tape
+      |-  ^-  tape
+      ?~  rev  ~
+      ?:  =('-' i.rev)
+        $(rev t.rev)
+      rev
+    (flop rtrimmed)
+  ::  step 4: cap at 32 chars
+  =/  capped=tape  (scag 32 trimmed)
+  ::  step 5: default to "note" if empty
+  =/  base=tape  ?~(capped "note" capped)
+  ::  step 6: prefix "n-" if first char is a digit
+  =/  prefixed=tape
+    ?.  &(?=(^ base) (gte i.base '0') (lte i.base '9'))
+      base
+    (weld "n-" base)
+  ::  step 7: build suffix string (strip dots from scot %ud)
+  =/  raw-suf=tape  (trip (scot %ud suffix))
+  =/  suf-tape=tape
+    %+  skim  raw-suf
+    |=(c=@t !=(c '.'))
+  =/  slug=tape  (weld (weld prefixed "-") suf-tape)
+  `@tas`(crip slug)
 ::
 ++  init
   ^+  cor
@@ -155,10 +220,9 @@
   </svg>
   '''
 ::
-::  +load: migrate old state to current state-9
-::  Migration cascade: 0→1→2→3→4→5→6→7→8→9.
-::  state-8 → state-9: moves visibility + history per-notebook; renames
-::  notebook-members to members.
+::  +load: migrate old state to current state-10
+::  Migration cascade: 0→1→2→3→4→5→6→7→8→9→10.
+::  state-9 → state-10: re-slug all flag names from @t cord to @tas term.
 ::
 ++  load
   |=  old=vase
@@ -169,23 +233,61 @@
     ?:  ?=(^ raw)
       ;;(@ -.raw)
     0
-  ::  state-9: current format
-  ?:  =(tag %9)
+  ::  state-10: current format
+  ?:  =(tag %10)
     =/  s=current-state  !<(current-state old)
     =.  state  s
+    cor
+  ::  state-9 → state-10: re-slug all flag names (@t → @tas).
+  ::  Build a translation map (flag-v9 → flag) using each notebook's title+id.
+  ::  Note: subscriber notebooks (ship != our.bowl) are also re-slugged using
+  ::  the host's title; cross-ship subscriptions will need to be re-established
+  ::  since the host's flag slug is computed independently.
+  ?:  =(tag %9)
+    =/  s=state-9:notes  !<(state-9:notes old)
+    ::  build translation map: old flag-v9 → new flag
+    =/  xlat=(map flag-v9:notes flag:notes)
+      %-  malt
+      %+  turn  ~(tap by books.s)
+      |=  [f=flag-v9:notes [=net:notes =notebook-state:notes]]
+      =/  nid=@ud  id.notebook.notebook-state
+      =/  new-name=@tas  (slugify title.notebook.notebook-state nid)
+      [f [ship.f new-name]]
+    ::  re-key books
+    =/  new-books=(map flag:notes [=net:notes =notebook-state:notes])
+      %-  malt
+      %+  turn  ~(tap by books.s)
+      |=  [f=flag-v9:notes entry=[=net:notes =notebook-state:notes]]
+      =/  nf=flag:notes  (~(got by xlat) f)
+      [nf entry]
+    ::  re-key published
+    =/  new-pub=(map [=flag:notes note-id=@ud] @t)
+      %-  malt
+      %+  turn  ~(tap by published.s)
+      |=  [[f=flag-v9:notes nid=@ud] html=@t]
+      =/  nf=flag:notes  (fall (~(get by xlat) f) [ship.f `@tas`name.f])
+      [[nf nid] html]
+    ::  re-key invites
+    =/  new-invites=(map flag:notes invite-info:notes)
+      %-  malt
+      %+  turn  ~(tap by invites.s)
+      |=  [f=flag-v9:notes info=invite-info:notes]
+      =/  nf=flag:notes  (fall (~(get by xlat) f) [ship.f `@tas`name.f])
+      [nf info]
+    =.  state  [%10 new-books next-id.s new-pub new-invites]
     cor
   ::  state-8 → state-9: move visibility + history into per-notebook-state;
   ::  rename notebook-members → members.
   ?:  =(tag %8)
     =/  s=state-8:notes  !<(state-8:notes old)
-    =/  new-books=(map flag:notes [=net:notes =notebook-state:notes])
+    =/  new-books=(map flag-v9:notes [=net:notes =notebook-state:notes])
       %-  ~(urn by books.s)
-      |=  [f=flag:notes [=net:notes old-nbs=notebook-state-v8:notes]]
+      |=  [f=flag-v9:notes [=net:notes old-nbs=notebook-state-v8:notes]]
       ::  filter history entries for this notebook flag; key by note-id only
       =/  nb-hist=(map @ud (list note-revision:notes))
         %-  malt
         %+  murn  ~(tap by history.s)
-        |=  [[kf=flag:notes nid=@ud] v=(list note-revision:notes)]
+        |=  [[kf=flag-v9:notes nid=@ud] v=(list note-revision:notes)]
         ?.  =(kf f)  ~
         `[nid v]
       =/  new-nbs=notebook-state:notes
@@ -197,13 +299,13 @@
             nb-hist
         ==
       [net new-nbs]
-    =.  state
+    =/  s9=state-9:notes
       [%9 new-books next-id.s published.s invites.s]
-    cor
+    (load !>(s9))
   ::  state-7 → state-8: backfill updated-by; truncate pub logs.
   ?:  =(tag %7)
     =/  s=state-7:notes  !<(state-7:notes old)
-    =/  new-books=(map flag:notes [=net:notes =notebook-state-v8:notes])
+    =/  new-books=(map flag-v9:notes [=net:notes =notebook-state-v8:notes])
       %-  ~(run by books.s)
       |=  [net=net-v0:notes old-nbs=notebook-state-v0:notes]
       =/  new-nb=notebook:notes
@@ -230,7 +332,7 @@
   ::  state-6 → state-8: add empty history, backfill updated-by
   ?:  =(tag %6)
     =/  s=state-6:notes  !<(state-6:notes old)
-    =/  new-books=(map flag:notes [=net:notes =notebook-state-v8:notes])
+    =/  new-books=(map flag-v9:notes [=net:notes =notebook-state-v8:notes])
       %-  ~(run by books.s)
       |=  [net=net-v0:notes old-nbs=notebook-state-v0:notes]
       =/  new-nb=notebook:notes
@@ -256,7 +358,7 @@
   ::  state-5 → state-8: drop old-shape invites, backfill updated-by
   ?:  =(tag %5)
     =/  s=state-5:notes  !<(state-5:notes old)
-    =/  new-books=(map flag:notes [=net:notes =notebook-state-v8:notes])
+    =/  new-books=(map flag-v9:notes [=net:notes =notebook-state-v8:notes])
       %-  ~(run by books.s)
       |=  [net=net-v0:notes old-nbs=notebook-state-v0:notes]
       =/  new-nb=notebook:notes
@@ -277,7 +379,7 @@
   ::  state-4 → state-8: add empty invites + history, backfill updated-by
   ?:  =(tag %4)
     =/  s=state-4:notes  !<(state-4:notes old)
-    =/  new-books=(map flag:notes [=net:notes =notebook-state-v8:notes])
+    =/  new-books=(map flag-v9:notes [=net:notes =notebook-state-v8:notes])
       %-  ~(run by books.s)
       |=  [net=net-v0:notes old-nbs=notebook-state-v0:notes]
       =/  new-nb=notebook:notes
@@ -298,7 +400,7 @@
   ::  state-3 → state-8: add empty visibilities + invites + history, backfill updated-by
   ?:  =(tag %3)
     =/  s=state-3:notes  !<(state-3:notes old)
-    =/  new-books=(map flag:notes [=net:notes =notebook-state-v8:notes])
+    =/  new-books=(map flag-v9:notes [=net:notes =notebook-state-v8:notes])
       %-  ~(run by books.s)
       |=  [net=net-v0:notes old-nbs=notebook-state-v0:notes]
       =/  new-nb=notebook:notes
@@ -319,7 +421,7 @@
   ::  state-2 → state-8: drop published, backfill
   ?:  =(tag %2)
     =/  s=state-2:notes  !<(state-2:notes old)
-    =/  new-books=(map flag:notes [=net:notes =notebook-state-v8:notes])
+    =/  new-books=(map flag-v9:notes [=net:notes =notebook-state-v8:notes])
       %-  ~(run by books.s)
       |=  [net=net-v0:notes old-nbs=notebook-state-v0:notes]
       =/  new-nb=notebook:notes
@@ -340,7 +442,7 @@
   ::  state-1 → state-8: backfill
   ?:  =(tag %1)
     =/  s=state-1:notes  !<(state-1:notes old)
-    =/  new-books=(map flag:notes [=net:notes =notebook-state-v8:notes])
+    =/  new-books=(map flag-v9:notes [=net:notes =notebook-state-v8:notes])
       %-  ~(run by books.s)
       |=  [net=net-v0:notes old-nbs=notebook-state-v0:notes]
       =/  new-nb=notebook:notes
@@ -407,7 +509,7 @@
       ?~  ship-u  ~
       ?~  nid-u   ~
       ?:  =(0 u.nid-u)  ~
-      =/  =flag:notes  [u.ship-u i.t.pax]
+      =/  =flag:notes  [u.ship-u `@tas`i.t.pax]
       (~(get by published.state) [flag u.nid-u])
     ::  check if this is a share-redirect request: /notes/share/~ship/name
     =/  share-html=(unit @t)
@@ -654,7 +756,7 @@
       [%v0 %notes ship=@ name=@ %updates ~]
     ::  subscriber watching our notebook's update stream
     =/  =ship  (slav %p ship.pole)
-    =/  name=@t  name.pole
+    =/  name=@tas  name.pole
     =/  =flag:notes  [ship name]
     ?>  =(our.bowl ship)
     =/  entry=(unit [=net:notes =notebook-state:notes])
@@ -668,7 +770,7 @@
       [%v0 %notes ship=@ name=@ %stream ~]
     ::  local UI subscription
     =/  =ship  (slav %p ship.pole)
-    =/  name=@t  name.pole
+    =/  name=@tas  name.pole
     =/  =flag:notes  [ship name]
     =/  entry=(unit [=net:notes =notebook-state:notes])
       (~(get by books.state) flag)
@@ -707,7 +809,7 @@
     ``json+!>([%a nbs])
     ::  /x/v0/notebook/<ship>/<name>
       [%x %v0 %notebook ship=@ name=@ ~]
-    =/  =flag:notes  [(slav %p ship.pole) name.pole]
+    =/  =flag:notes  [(slav %p ship.pole) `@tas`name.pole]
     =/  entry=(unit [=net:notes =notebook-state:notes])
       (~(get by books.state) flag)
     ?~  entry  ``json+!>(~)
@@ -719,7 +821,7 @@
     ==
     ::  /x/v0/folders/<ship>/<name>
       [%x %v0 %folders ship=@ name=@ ~]
-    =/  =flag:notes  [(slav %p ship.pole) name.pole]
+    =/  =flag:notes  [(slav %p ship.pole) `@tas`name.pole]
     =/  entry=(unit [=net:notes =notebook-state:notes])
       (~(get by books.state) flag)
     ?~  entry  ``json+!>(~)
@@ -730,7 +832,7 @@
     ``json+!>([%a flds])
     ::  /x/v0/notes/<ship>/<name>
       [%x %v0 %notes ship=@ name=@ ~]
-    =/  =flag:notes  [(slav %p ship.pole) name.pole]
+    =/  =flag:notes  [(slav %p ship.pole) `@tas`name.pole]
     =/  entry=(unit [=net:notes =notebook-state:notes])
       (~(get by books.state) flag)
     ?~  entry  ``json+!>(~)
@@ -741,7 +843,7 @@
     ``json+!>([%a nts])
     ::  /x/v0/note/<ship>/<name>/<id> — single note by ID
       [%x %v0 %note ship=@ name=@ id=@ ~]
-    =/  =flag:notes  [(slav %p ship.pole) name.pole]
+    =/  =flag:notes  [(slav %p ship.pole) `@tas`name.pole]
     =/  entry=(unit [=net:notes =notebook-state:notes])
       (~(get by books.state) flag)
     ?~  entry  ``json+!>(~)
@@ -753,7 +855,7 @@
     ``json+!>((note:enjs:notes-json u.nt))
     ::  /x/v0/note-history/<ship>/<name>/<id> — revision history for a note
       [%x %v0 %note-history ship=@ name=@ id=@ ~]
-    =/  =flag:notes  [(slav %p ship.pole) name.pole]
+    =/  =flag:notes  [(slav %p ship.pole) `@tas`name.pole]
     =/  entry=(unit [=net:notes =notebook-state:notes])
       (~(get by books.state) flag)
     ?~  entry  ``json+!>(~)
@@ -767,7 +869,7 @@
     ``json+!>([%a items])
     ::  /x/v0/folder/<ship>/<name>/<id> — single folder by ID
       [%x %v0 %folder ship=@ name=@ id=@ ~]
-    =/  =flag:notes  [(slav %p ship.pole) name.pole]
+    =/  =flag:notes  [(slav %p ship.pole) `@tas`name.pole]
     =/  entry=(unit [=net:notes =notebook-state:notes])
       (~(get by books.state) flag)
     ?~  entry  ``json+!>(~)
@@ -779,7 +881,7 @@
     ``json+!>((folder:enjs:notes-json u.fld))
     ::  /x/v0/members/<ship>/<name>
       [%x %v0 %members ship=@ name=@ ~]
-    =/  =flag:notes  [(slav %p ship.pole) name.pole]
+    =/  =flag:notes  [(slav %p ship.pole) `@tas`name.pole]
     =/  entry=(unit [=net:notes =notebook-state:notes])
       (~(get by books.state) flag)
     ?~  entry  ``json+!>(~)
@@ -827,14 +929,14 @@
   ?+  pole  ~|(bad-agent-wire+pole !!)
       [%notes %sub ship=@ name=@ ~]
     =/  =flag:notes
-      [(slav %p ship.pole) name.pole]
+      [(slav %p ship.pole) `@tas`name.pole]
     ?.  (~(has by books.state) flag)
       cor
     no-abet:(no-agent:(no-abed:no-core flag) sign)
   ::
       [%notes %join ship=@ name=@ ~]
     =/  =flag:notes
-      [(slav %p ship.pole) name.pole]
+      [(slav %p ship.pole) `@tas`name.pole]
     ?+  -.sign  cor
         %poke-ack
       ?~  p.sign
@@ -895,8 +997,9 @@
   ++  se-init
     |=  act=action:notes
     ^+  se-core
+    ?>  ?=(%create-notebook -.act)
     =/  nid=@ud  +(next-id.state)
-    =/  =flag:notes  [our.bowl (scot %ud nid)]
+    =/  =flag:notes  [our.bowl (slugify title.act nid)]
     se-core(flag flag)
   ::
   ::  +se-abed: load from state for a given flag
@@ -981,11 +1084,13 @@
     visibility.notebook-state
   ::
   ::  +se-create-notebook: handle %create-notebook action
+  ::  nid is +(next-id.state) — same value se-init used to build the flag slug;
+  ::  state has not been modified between se-init and this call.
   ++  se-create-notebook
     |=  act=action:notes
     ?>  ?=(%create-notebook -.act)
     ^+  se-core
-    =/  nid=@ud  (slav %ud name.flag)
+    =/  nid=@ud  +(next-id.state)
     =/  rfid=@ud  +(nid)
     =/  nb=notebook:notes
       [nid title.act our.bowl now.bowl now.bowl our.bowl]
