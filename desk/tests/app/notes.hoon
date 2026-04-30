@@ -706,7 +706,7 @@
   ^-  form:m
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
-  ::  build a state-8 with one invite pre-seeded
+  ::  build a state-8 with one invite pre-seeded; load migrates to state-9
   =/  remote-flag=flag:notes  [~bus '5']
   =/  inv=(map flag:notes invite-info:notes)
     (~(put by *(map flag:notes invite-info:notes)) remote-flag [~bus now.bowl 'RemoteNB'])
@@ -717,9 +717,9 @@
   ;<  ~  b  (ex-cards-ne caz)
   ::  invites map is now empty
   ;<  sv=vase  b  get-save
-  =/  s8-after=state-8:notes  !<(state-8:notes sv)
+  =/  s9-after=state-9:notes  !<(state-9:notes sv)
   |=  s=state
-  ?.  =(~ invites.s8-after)
+  ?.  =(~ invites.s9-after)
     |+['expected empty invites map after accept-invite']~
   &+[~ s]
 ::
@@ -738,18 +738,19 @@
   ;<  *  b  (do-load notes-agent `!>(s8))
   ;<  *  b  (poke-a [%decline-invite remote-flag])
   ;<  sv=vase  b  get-save
-  =/  s8-after=state-8:notes  !<(state-8:notes sv)
+  =/  s9-after=state-9:notes  !<(state-9:notes sv)
   |=  s=state
-  ?.  =(~ invites.s8-after)
+  ?.  =(~ invites.s9-after)
     |+['expected empty invites map after decline-invite']~
   &+[~ s]
 ::
-::  ====  test-migrate-state-7-to-8  ====
-::  Hand-built state-7 through on-load; result tag must be %8.
+::  ====  test-migrate-state-7-to-9  ====
+::  Hand-built state-7 through on-load; result tag must be %9.
 ::  - updated-by backfilled on notebook from created-by
 ::  - pub log truncated to empty
-::  - invites and history preserved
-++  test-migrate-state-7-to-8
+::  - invites preserved in state-9
+::  - history migrated into per-notebook-state
+++  test-migrate-state-7-to-9
   %-  eval-mare
   =/  m  (mare ,~)
   =*  b  bind:m
@@ -773,25 +774,25 @@
     [%7 bks 2 ~ ~ inv hist]
   ;<  *  b  (do-load notes-agent `!>(s7))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%8))
-  =/  s8=state-8:notes  !<(state-8:notes sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%9))
+  =/  s9=state-9:notes  !<(state-9:notes sv)
   |=  s=state
-  ::  history preserved
-  ?.  =(1 ~(wyt by history.s8))
-    |+['expected history map preserved after state-7→8 migration']~
-  ::  invites preserved
-  ?.  =(1 ~(wyt by invites.s8))
-    |+['expected invites map preserved after state-7→8 migration']~
-  ::  pub log truncated
-  =/  entry=[=net:notes =notebook-state:notes]  (~(got by books.s8) f)
+  ::  invites preserved at top level
+  ?.  =(1 ~(wyt by invites.s9))
+    |+['expected invites preserved after state-7→9 migration']~
+  ::  pub log truncated; notebook reachable
+  =/  entry=[=net:notes =notebook-state:notes]  (~(got by books.s9) f)
   ?.  ?=(%pub -.net.entry)
     |+['expected %pub net']~
   ?.  =(~ (tap:log-on:notes log.net.entry))
-    |+['expected empty pub log after state-7→8 migration']~
+    |+['expected empty pub log after state-7→9 migration']~
+  ::  history migrated into per-notebook-state (one entry keyed by 99)
+  ?.  =(1 ~(wyt by history.notebook-state.entry))
+    |+['expected per-notebook history after state-7→9 migration']~
   &+[~ s]
 ::
-::  ====  test-migrate-state-6-to-8  ====
-++  test-migrate-state-6-to-8
+::  ====  test-migrate-state-6-to-9  ====
+++  test-migrate-state-6-to-9
   %-  eval-mare
   =/  m  (mare ,~)
   =*  b  bind:m
@@ -800,7 +801,7 @@
   =/  s6=state-6:notes  [%6 ~ 0 ~ ~ ~]
   ;<  *  b  (do-load notes-agent `!>(s6))
   ;<  sv=vase  b  get-save
-  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%8))
+  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%9))
 ::
 ::  ====  test-migrate-state-6-preserves-notebook  ====
 ::  state-6 with one notebook migrates and the notebook is reachable.
@@ -824,8 +825,8 @@
   ;<  nb-cag=cage  b  (got-peek /x/v0/notebook/(scot %p ~zod)/'1')
   (ex-json nb-cag)
 ::
-::  ====  test-migrate-state-3-to-8  ====
-++  test-migrate-state-3-to-8
+::  ====  test-migrate-state-3-to-9  ====
+++  test-migrate-state-3-to-9
   %-  eval-mare
   =/  m  (mare ,~)
   =*  b  bind:m
@@ -843,11 +844,11 @@
   =/  s3=state-3:notes  [%3 bks 2 ~]
   ;<  *  b  (do-load notes-agent `!>(s3))
   ;<  sv=vase  b  get-save
-  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%8))
+  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%9))
 ::
-::  ====  test-migrate-state-2-to-8  ====
-::  state-2 published (bare @ud key) is dropped; published in state-8 is empty.
-++  test-migrate-state-2-to-8
+::  ====  test-migrate-state-2-to-9  ====
+::  state-2 published (bare @ud key) is dropped; published in state-9 is empty.
+++  test-migrate-state-2-to-9
   %-  eval-mare
   =/  m  (mare ,~)
   =*  b  bind:m
@@ -866,7 +867,7 @@
     [%2 bks 2 (~(put by *(map @ud @t)) 1 '<h1>Old</h1>')]
   ;<  *  b  (do-load notes-agent `!>(s2))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%8))
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%9))
   ;<  pub=cage  b  (got-peek /x/v0/published)
   ;<  ~  b  (ex-json pub)
   =/  jv=json  !<(json q.pub)
@@ -875,8 +876,8 @@
     |+['expected empty json array for published after state-2 migration']~
   &+[~ s]
 ::
-::  ====  test-migrate-state-1-to-8  ====
-++  test-migrate-state-1-to-8
+::  ====  test-migrate-state-1-to-9  ====
+++  test-migrate-state-1-to-9
   %-  eval-mare
   =/  m  (mare ,~)
   =*  b  bind:m
@@ -894,7 +895,7 @@
   =/  s1=state-1:notes  [%1 bks 2]
   ;<  *  b  (do-load notes-agent `!>(s1))
   ;<  sv=vase  b  get-save
-  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%8))
+  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%9))
 ::
 ::  ====  test-migrate-state-4-backfills-updated-by  ====
 ::  state-4: notebook and folders lack updated-by; migration backfills from created-by.
@@ -926,9 +927,9 @@
   =/  s4=state-4:notes  [%4 bks 4 ~ ~]
   ;<  *  b  (do-load notes-agent `!>(s4))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%8))
-  =/  s8=state-8:notes  !<(state-8:notes sv)
-  =/  entry=[=net:notes =notebook-state:notes]  (~(got by books.s8) f)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%9))
+  =/  s9=state-9:notes  !<(state-9:notes sv)
+  =/  entry=[=net:notes =notebook-state:notes]  (~(got by books.s9) f)
   =/  migrated-nb-s=notebook-state:notes  notebook-state.entry
   |=  s=state
   ?.  =(~nec updated-by.notebook.migrated-nb-s)
@@ -942,6 +943,53 @@
   =/  mig-nt=note:notes  (~(got by notes.migrated-nb-s) 4)
   ?.  =(~bus updated-by.mig-nt)
     |+['expected note updated-by preserved (~bus)']~
+  &+[~ s]
+::
+::  ====  test-migrate-state-8-to-9  ====
+::  Hand-built state-8 with one notebook, top-level visibilities and history.
+::  After load: state-9, visibility + history embedded in notebook-state,
+::  top-level visibilities/history gone.
+++  test-migrate-state-8-to-9
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  =/  f=flag:notes  [~zod '1']
+  ::  build a minimal notebook-state-v8 entry
+  =/  nb=notebook:notes  [1 'S8-NB' ~zod *@da *@da ~zod]
+  =/  rf=folder:notes    [2 1 '/' ~ ~zod *@da *@da ~zod]
+  =/  mbrs=notebook-members:notes
+    (~(put by *notebook-members:notes) ~zod %owner)
+  =/  fldmap=(map @ud folder:notes)
+    (~(put by *(map @ud folder:notes)) 2 rf)
+  =/  nbs8=notebook-state-v8:notes  [nb mbrs fldmap ~]
+  ::  top-level visibility + history
+  =/  vis-map=(map flag:notes visibility:notes)
+    (~(put by *(map flag:notes visibility:notes)) f %public)
+  =/  rev=note-revision:notes  [0 *@da ~zod 'old' 'old-body']
+  =/  hist-key=[=flag:notes note-id=@ud]  [f 5]
+  =/  hist-map=(map [=flag:notes note-id=@ud] (list note-revision:notes))
+    (~(put by *(map [=flag:notes note-id=@ud] (list note-revision:notes))) hist-key ~[rev])
+  =/  empty-bks  *(map flag:notes [net=net:notes notebook-state-v8=notebook-state-v8:notes])
+  =/  bks  (~(put by empty-bks) f [[%pub *log:notes] nbs8])
+  =/  s8=state-8:notes  [%8 bks 2 ~ vis-map ~ hist-map]
+  ;<  *  b  (do-load notes-agent `!>(s8))
+  ;<  sv=vase  b  get-save
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%9))
+  =/  s9=state-9:notes  !<(state-9:notes sv)
+  =/  entry=[=net:notes =notebook-state:notes]  (~(got by books.s9) f)
+  |=  s=state
+  ::  visibility embedded in notebook-state
+  ?.  =(%public visibility.notebook-state.entry)
+    |+['expected visibility=%public in notebook-state after state-8→9']~
+  ::  history embedded in notebook-state, keyed by note-id=5
+  ?.  =(1 ~(wyt by history.notebook-state.entry))
+    |+['expected 1 history entry in notebook-state after state-8→9']~
+  =/  revs=(list note-revision:notes)
+    (fall (~(get by history.notebook-state.entry) 5) ~)
+  ?.  =(`(list note-revision:notes)`~[rev] revs)
+    |+['expected correct history revision after state-8→9']~
   &+[~ s]
 ::
 ::  ====  JSON wire-format tests  ============================================
@@ -1206,7 +1254,7 @@
   |=  s=state
   =/  nb=notebook:notes
     [1 'Test' ~zod ~1970.1.1 ~1970.1.1 ~zod]
-  =/  nb-s=notebook-state:notes  [nb ~ ~ ~]
+  =/  nb-s=notebook-state:notes  [nb ~ %private ~ ~ ~]
   =/  res=response:notes  [%snapshot [~zod 'foo'] %public nb-s]
   =/  jon=json  (response:enjs:notes-json res)
   ?.  ?=([%o *] jon)

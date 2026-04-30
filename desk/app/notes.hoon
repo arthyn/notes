@@ -7,7 +7,7 @@
 ::
 |%
 +$  card  card:agent:gall
-+$  current-state  state-8:notes
++$  current-state  state-9:notes
 --
 ::
 =|  current-state
@@ -78,7 +78,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'notify-invite-as-command-v1'
+++  dummy  'state-9-per-nb-fields-v1'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -155,10 +155,10 @@
   </svg>
   '''
 ::
-::  +load: migrate old state to current state-8
-::  Migration cascade: 0→1→2→3→4→5→6→7→8.
-::  state-7 (master's current) → state-8 adds updated-by backfill and
-::  truncates pub logs (u-notes → u-notebook incompatible; re-snapshot on reconnect).
+::  +load: migrate old state to current state-9
+::  Migration cascade: 0→1→2→3→4→5→6→7→8→9.
+::  state-8 → state-9: moves visibility + history per-notebook; renames
+::  notebook-members to members.
 ::
 ++  load
   |=  old=vase
@@ -169,15 +169,41 @@
     ?:  ?=(^ raw)
       ;;(@ -.raw)
     0
-  ::  state-8: current format
-  ?:  =(tag %8)
+  ::  state-9: current format
+  ?:  =(tag %9)
     =/  s=current-state  !<(current-state old)
     =.  state  s
+    cor
+  ::  state-8 → state-9: move visibility + history into per-notebook-state;
+  ::  rename notebook-members → members.
+  ?:  =(tag %8)
+    =/  s=state-8:notes  !<(state-8:notes old)
+    =/  new-books=(map flag:notes [=net:notes =notebook-state:notes])
+      %-  ~(urn by books.s)
+      |=  [f=flag:notes [=net:notes old-nbs=notebook-state-v8:notes]]
+      ::  filter history entries for this notebook flag; key by note-id only
+      =/  nb-hist=(map @ud (list note-revision:notes))
+        %-  malt
+        %+  murn  ~(tap by history.s)
+        |=  [[kf=flag:notes nid=@ud] v=(list note-revision:notes)]
+        ?.  =(kf f)  ~
+        `[nid v]
+      =/  new-nbs=notebook-state:notes
+        :*  notebook.old-nbs
+            notebook-members.old-nbs
+            (fall (~(get by visibilities.s) f) %private)
+            folders.old-nbs
+            notes.old-nbs
+            nb-hist
+        ==
+      [net new-nbs]
+    =.  state
+      [%9 new-books next-id.s published.s invites.s]
     cor
   ::  state-7 → state-8: backfill updated-by; truncate pub logs.
   ?:  =(tag %7)
     =/  s=state-7:notes  !<(state-7:notes old)
-    =/  new-books=(map flag:notes [=net:notes =notebook-state:notes])
+    =/  new-books=(map flag:notes [=net:notes =notebook-state-v8:notes])
       %-  ~(run by books.s)
       |=  [net=net-v0:notes old-nbs=notebook-state-v0:notes]
       =/  new-nb=notebook:notes
@@ -197,13 +223,14 @@
           %sub  [%sub time.net init.net]
         ==
       [new-net [new-nb notebook-members.old-nbs new-folders notes.old-nbs]]
-    =.  state
+    =/  s8=state-8:notes
       [%8 new-books next-id.s published.s visibilities.s invites.s history.s]
-    cor
+    =/  s8-vase=vase  !>(s8)
+    (load s8-vase)
   ::  state-6 → state-8: add empty history, backfill updated-by
   ?:  =(tag %6)
     =/  s=state-6:notes  !<(state-6:notes old)
-    =/  new-books=(map flag:notes [=net:notes =notebook-state:notes])
+    =/  new-books=(map flag:notes [=net:notes =notebook-state-v8:notes])
       %-  ~(run by books.s)
       |=  [net=net-v0:notes old-nbs=notebook-state-v0:notes]
       =/  new-nb=notebook:notes
@@ -223,12 +250,13 @@
           %sub  [%sub time.net init.net]
         ==
       [new-net [new-nb notebook-members.old-nbs new-folders notes.old-nbs]]
-    =.  state  [%8 new-books next-id.s published.s visibilities.s invites.s ~]
-    cor
+    =/  s8=state-8:notes
+      [%8 new-books next-id.s published.s visibilities.s invites.s ~]
+    (load !>(s8))
   ::  state-5 → state-8: drop old-shape invites, backfill updated-by
   ?:  =(tag %5)
     =/  s=state-5:notes  !<(state-5:notes old)
-    =/  new-books=(map flag:notes [=net:notes =notebook-state:notes])
+    =/  new-books=(map flag:notes [=net:notes =notebook-state-v8:notes])
       %-  ~(run by books.s)
       |=  [net=net-v0:notes old-nbs=notebook-state-v0:notes]
       =/  new-nb=notebook:notes
@@ -243,12 +271,13 @@
             created-by.fld  created-at.fld  updated-at.fld  created-by.fld
         ==
       [[%pub *log:notes] [new-nb notebook-members.old-nbs new-folders notes.old-nbs]]
-    =.  state  [%8 new-books next-id.s published.s visibilities.s ~ ~]
-    cor
+    =/  s8=state-8:notes
+      [%8 new-books next-id.s published.s visibilities.s ~ ~]
+    (load !>(s8))
   ::  state-4 → state-8: add empty invites + history, backfill updated-by
   ?:  =(tag %4)
     =/  s=state-4:notes  !<(state-4:notes old)
-    =/  new-books=(map flag:notes [=net:notes =notebook-state:notes])
+    =/  new-books=(map flag:notes [=net:notes =notebook-state-v8:notes])
       %-  ~(run by books.s)
       |=  [net=net-v0:notes old-nbs=notebook-state-v0:notes]
       =/  new-nb=notebook:notes
@@ -263,12 +292,13 @@
             created-by.fld  created-at.fld  updated-at.fld  created-by.fld
         ==
       [[%pub *log:notes] [new-nb notebook-members.old-nbs new-folders notes.old-nbs]]
-    =.  state  [%8 new-books next-id.s published.s visibilities.s ~ ~]
-    cor
+    =/  s8=state-8:notes
+      [%8 new-books next-id.s published.s visibilities.s ~ ~]
+    (load !>(s8))
   ::  state-3 → state-8: add empty visibilities + invites + history, backfill updated-by
   ?:  =(tag %3)
     =/  s=state-3:notes  !<(state-3:notes old)
-    =/  new-books=(map flag:notes [=net:notes =notebook-state:notes])
+    =/  new-books=(map flag:notes [=net:notes =notebook-state-v8:notes])
       %-  ~(run by books.s)
       |=  [net=net-v0:notes old-nbs=notebook-state-v0:notes]
       =/  new-nb=notebook:notes
@@ -283,12 +313,13 @@
             created-by.fld  created-at.fld  updated-at.fld  created-by.fld
         ==
       [[%pub *log:notes] [new-nb notebook-members.old-nbs new-folders notes.old-nbs]]
-    =.  state  [%8 new-books next-id.s published.s ~ ~ ~]
-    cor
+    =/  s8=state-8:notes
+      [%8 new-books next-id.s published.s ~ ~ ~]
+    (load !>(s8))
   ::  state-2 → state-8: drop published, backfill
   ?:  =(tag %2)
     =/  s=state-2:notes  !<(state-2:notes old)
-    =/  new-books=(map flag:notes [=net:notes =notebook-state:notes])
+    =/  new-books=(map flag:notes [=net:notes =notebook-state-v8:notes])
       %-  ~(run by books.s)
       |=  [net=net-v0:notes old-nbs=notebook-state-v0:notes]
       =/  new-nb=notebook:notes
@@ -303,12 +334,13 @@
             created-by.fld  created-at.fld  updated-at.fld  created-by.fld
         ==
       [[%pub *log:notes] [new-nb notebook-members.old-nbs new-folders notes.old-nbs]]
-    =.  state  [%8 new-books next-id.s ~ ~ ~ ~]
-    cor
+    =/  s8=state-8:notes
+      [%8 new-books next-id.s ~ ~ ~ ~]
+    (load !>(s8))
   ::  state-1 → state-8: backfill
   ?:  =(tag %1)
     =/  s=state-1:notes  !<(state-1:notes old)
-    =/  new-books=(map flag:notes [=net:notes =notebook-state:notes])
+    =/  new-books=(map flag:notes [=net:notes =notebook-state-v8:notes])
       %-  ~(run by books.s)
       |=  [net=net-v0:notes old-nbs=notebook-state-v0:notes]
       =/  new-nb=notebook:notes
@@ -323,8 +355,9 @@
             created-by.fld  created-at.fld  updated-at.fld  created-by.fld
         ==
       [[%pub *log:notes] [new-nb notebook-members.old-nbs new-folders notes.old-nbs]]
-    =.  state  [%8 new-books next-id.s ~ ~ ~ ~]
-    cor
+    =/  s8=state-8:notes
+      [%8 new-books next-id.s ~ ~ ~ ~]
+    (load !>(s8))
   ::  state-0 or unknown: start fresh
   cor
 ::
@@ -496,7 +529,7 @@
   =/  placeholder-nb=notebook:notes
     [0 '' ship.flag *@da *@da ship.flag]
   =/  placeholder-nb-state=notebook-state:notes
-    [placeholder-nb ~ ~ ~]
+    [placeholder-nb ~ %private ~ ~ ~]
   =.  books.state
     (~(put by books.state) flag [placeholder-net placeholder-nb-state])
   ::  send %member-join command to host (wrapped in c-notes %notebook arm)
@@ -641,9 +674,8 @@
       (~(get by books.state) flag)
     ?~  entry  ~|(notebook-not-found+flag !!)
     ?>  (can-view-flag flag src.bowl)
-    ::  send initial snapshot carrying visibility
-    =/  vis=visibility:notes
-      (fall (~(get by visibilities.state) flag) %private)
+    ::  send initial snapshot carrying visibility from notebook-state
+    =/  vis=visibility:notes  visibility.notebook-state.u.entry
     =/  snap=response:notes  [%snapshot flag vis notebook-state.u.entry]
     %-  give
     [%fact [`path`pole]~ notes-response+!>(snap)]
@@ -666,13 +698,11 @@
       %+  murn  ~(tap by books.state)
       |=  [=flag:notes [=net:notes =notebook-state:notes]]
       ?.  (can-view-flag flag src.bowl)  ~
-      =/  vis=visibility:notes
-        (fall (~(get by visibilities.state) flag) %private)
       =-  `(pairs:enjs:format -)
       :~  ['host' s+(scot %p ship.flag)]
           ['flagName' s+name.flag]
           ['notebook' (notebook:enjs:notes-json notebook.notebook-state)]
-          ['visibility' s+(scot %tas vis)]
+          ['visibility' s+(scot %tas visibility.notebook-state)]
       ==
     ``json+!>([%a nbs])
     ::  /x/v0/notebook/<ship>/<name>
@@ -730,7 +760,7 @@
     ?>  (can-view-flag flag src.bowl)
     =/  nid=@ud  (slav %ud id.pole)
     =/  revs=(list note-revision:notes)
-      (fall (~(get by history.state) [flag nid]) ~)
+      (fall (~(get by history.notebook-state.u.entry) nid) ~)
     =/  items=(list json)
       %+  turn  revs
       note-revision:enjs:notes-json
@@ -755,7 +785,7 @@
     ?~  entry  ``json+!>(~)
     ?>  (can-view-flag flag src.bowl)
     =/  mlist=(list json)
-      %+  turn  ~(tap by notebook-members.notebook-state.u.entry)
+      %+  turn  ~(tap by members.notebook-state.u.entry)
       |=  [who=ship r=role:notes]
       %-  pairs:enjs:format
       :~  ['ship' s+(scot %p who)]
@@ -835,8 +865,8 @@
   =/  entry=(unit [=net:notes =notebook-state:notes])
     (~(get by books.state) flag)
   ?~  entry  |
-  =/  mbrs=notebook-members:notes
-    notebook-members.notebook-state.u.entry
+  =/  mbrs=members:notes
+    members.notebook-state.u.entry
   ?~  (~(get by mbrs) who)  |
   &
 ::
@@ -917,8 +947,7 @@
   ++  se-watch-sub
     |=  who=ship
     ^+  se-core
-    =/  vis=visibility:notes
-      (fall (~(get by visibilities.state) flag) %private)
+    =/  vis=visibility:notes  visibility.notebook-state
     =/  snap=response:notes  [%snapshot flag vis notebook-state]
     %-  give
     [%fact ~ notes-response+!>(snap)]
@@ -926,14 +955,14 @@
   ++  se-can-view
     |=  who=ship
     ^-  ?
-    ?~  (~(get by notebook-members.notebook-state) who)  |
+    ?~  (~(get by members.notebook-state) who)  |
     &
   ::
   ++  se-can-edit
     |=  who=ship
     ^-  ?
     =/  r=(unit role:notes)
-      (~(get by notebook-members.notebook-state) who)
+      (~(get by members.notebook-state) who)
     ?~  r  |
     ?|  =(u.r %owner)
         =(u.r %editor)
@@ -943,13 +972,13 @@
     |=  who=ship
     ^-  ?
     =/  r=(unit role:notes)
-      (~(get by notebook-members.notebook-state) who)
+      (~(get by members.notebook-state) who)
     ?~  r  |
     =(u.r %owner)
   ::
   ++  se-visibility
     ^-  visibility:notes
-    (fall (~(get by visibilities.state) flag) %private)
+    visibility.notebook-state
   ::
   ::  +se-create-notebook: handle %create-notebook action
   ++  se-create-notebook
@@ -962,10 +991,10 @@
       [nid title.act our.bowl now.bowl now.bowl our.bowl]
     =/  rf=folder:notes
       [rfid nid '/' ~ our.bowl now.bowl now.bowl our.bowl]
-    =/  mbrs=notebook-members:notes
-      (~(put by *notebook-members:notes) our.bowl %owner)
+    =/  mbrs=members:notes
+      (~(put by *members:notes) our.bowl %owner)
     =/  nb-state=notebook-state:notes
-      [nb mbrs ~ ~]
+      [nb mbrs %private ~ ~ ~]
     =.  nb-state
       nb-state(folders (~(put by folders.nb-state) rfid rf))
     =.  next-id.state  rfid
@@ -1016,14 +1045,7 @@
       %+  skip  ~(tap by published.state)
       |=  [k=[=flag:notes note-id=@ud] v=@t]
       =(flag.k flag)
-    ::  clean up history entries for this notebook
-    =.  history.state
-      %-  malt
-      %+  skip  ~(tap by history.state)
-      |=  [k=[=flag:notes note-id=@ud] v=(list note-revision:notes)]
-      =(flag.k flag)
-    ::  clean up visibility entry
-    =.  visibilities.state  (~(del by visibilities.state) flag)
+    ::  history and visibility live in notebook-state, deleted via gone flag
     =.  se-core  (se-update [%deleted ~])
     se-core(gone &)
   ::
@@ -1032,8 +1054,7 @@
     ?>  ?=(%visibility -.c-notebook.cmd)
     ^+  se-core
     ?>  (se-is-owner src.bowl)
-    =.  visibilities.state
-      (~(put by visibilities.state) flag visibility.c-notebook.cmd)
+    =.  visibility.notebook-state  visibility.c-notebook.cmd
     (se-update [%visibility visibility.c-notebook.cmd])
   ::
   ++  se-invite
@@ -1042,10 +1063,10 @@
     ^+  se-core
     ?>  (se-is-owner src.bowl)
     =/  who=ship  who.c-notebook.cmd
-    ?:  (~(has by notebook-members.notebook-state) who)
+    ?:  (~(has by members.notebook-state) who)
       se-core
-    =.  notebook-members.notebook-state
-      (~(put by notebook-members.notebook-state) who %editor)
+    =.  members.notebook-state
+      (~(put by members.notebook-state) who %editor)
     (se-update [%member-joined who %editor])
   ::
   ++  se-member-join
@@ -1057,18 +1078,18 @@
             !(se-can-view src.bowl)
         ==
       ~|(notebook-private+flag !!)
-    =/  new-mbrs=notebook-members:notes
-      (~(put by notebook-members.notebook-state) src.bowl %editor)
-    =.  notebook-members.notebook-state  new-mbrs
+    =/  new-mbrs=members:notes
+      (~(put by members.notebook-state) src.bowl %editor)
+    =.  members.notebook-state  new-mbrs
     (se-update [%member-joined src.bowl %editor])
   ::
   ++  se-member-leave
     |=  cmd=c-cmd:notes
     ?>  ?=(%member-leave -.c-notebook.cmd)
     ^+  se-core
-    =/  new-mbrs=notebook-members:notes
-      (~(del by notebook-members.notebook-state) src.bowl)
-    =.  notebook-members.notebook-state  new-mbrs
+    =/  new-mbrs=members:notes
+      (~(del by members.notebook-state) src.bowl)
+    =.  members.notebook-state  new-mbrs
     (se-update [%member-left src.bowl])
   ::
   ++  se-dispatch-folder
@@ -1281,7 +1302,7 @@
     ::  no-op early-out: body unchanged
     ?:  =(body-md.nt body.a-note.c-notebook.cmd)
       se-core
-    ::  archive the prior revision
+    ::  archive the prior revision into per-notebook history
     =/  prior=note-revision:notes
       :*  rev=revision.nt
           at=now.bowl
@@ -1289,11 +1310,10 @@
           title=title.nt
           body-md=body-md.nt
       ==
-    =/  hkey=[=flag:notes note-id=@ud]  [flag nid]
     =/  existing=(list note-revision:notes)
-      (fall (~(get by history.state) hkey) ~)
-    =.  history.state
-      (~(put by history.state) hkey [prior existing])
+      (fall (~(get by history.notebook-state) nid) ~)
+    =.  history.notebook-state
+      (~(put by history.notebook-state) nid [prior existing])
     =.  nt
       %_  nt
         body-md     body.a-note.c-notebook.cmd
@@ -1320,10 +1340,9 @@
     =/  nt=note:notes
       (~(got by notes.notebook-state) nid)
     ?>  (se-can-edit src.bowl)
-    ::  find the archived revision
-    =/  hkey=[=flag:notes note-id=@ud]  [flag nid]
+    ::  find the archived revision in per-notebook history
     =/  revs=(list note-revision:notes)
-      (fall (~(get by history.state) hkey) ~)
+      (fall (~(get by history.notebook-state) nid) ~)
     =/  found=(unit note-revision:notes)
       |-
       ?~  revs  ~
@@ -1554,9 +1573,6 @@
       =.  notebook-state  notebook-state.response
       ?>  ?=(%sub -.net)
       =.  net  net(init &)
-      ::  seed local visibility from snapshot
-      =.  visibilities.state
-        (~(put by visibilities.state) flag visibility.response)
       =.  cards  [notebooks-changed-card cards]
       %-  give
       [%fact [/v0/notes/(scot %p ship.flag)/[name.flag]/stream]~ notes-response+!>(response)]
@@ -1585,19 +1601,18 @@
       no-core(gone &)
     ::
         %visibility
-      ::  write visibility to our local cache
-      =.  visibilities.state
-        (~(put by visibilities.state) flag visibility.u-nb)
+      ::  write visibility into local notebook-state
+      =.  visibility.notebook-state  visibility.u-nb
       no-core
     ::
         %member-joined
-      =.  notebook-members.notebook-state
-        (~(put by notebook-members.notebook-state) who.u-nb role.u-nb)
+      =.  members.notebook-state
+        (~(put by members.notebook-state) who.u-nb role.u-nb)
       no-core
     ::
         %member-left
-      =.  notebook-members.notebook-state
-        (~(del by notebook-members.notebook-state) who.u-nb)
+      =.  members.notebook-state
+        (~(del by members.notebook-state) who.u-nb)
       no-core
     ::
         %invite-received
@@ -1652,12 +1667,11 @@
         %unpublished
       no-core
         %history-archived
-      ::  append archived revision to local history cache
-      =/  hkey=[=flag:notes note-id=@ud]  [flag nid]
+      ::  append archived revision to local per-notebook history cache
       =/  existing=(list note-revision:notes)
-        (fall (~(get by history.state) hkey) ~)
-      =.  history.state
-        (~(put by history.state) hkey [note-revision.upd existing])
+        (fall (~(get by history.notebook-state) nid) ~)
+      =.  history.notebook-state
+        (~(put by history.notebook-state) nid [note-revision.upd existing])
       no-core
     ==
   --

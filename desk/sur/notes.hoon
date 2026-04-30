@@ -52,7 +52,8 @@
       revision=@ud
   ==
 ::
-+$  notebook-members  (map ship role)
++$  members  (map ship role)
++$  notebook-members  members  ::  legacy alias for v0 migration types
 ::
 ::  $note-revision: an archived prior version of a note
 +$  note-revision
@@ -71,12 +72,22 @@
       [%note title=@t body-md=@t]
   ==
 ::
-::  $notebook-state: all data for a single notebook
-+$  notebook-state
+::  $notebook-state-v8: notebook-state shape used by state-8 books map
++$  notebook-state-v8
   $:  =notebook
-      =notebook-members
+      notebook-members=notebook-members
       folders=(map @ud folder)
       notes=(map @ud note)
+  ==
+::
+::  $notebook-state: all data for a single notebook (state-9+)
++$  notebook-state
+  $:  =notebook
+      =members
+      =visibility
+      folders=(map @ud folder)
+      notes=(map @ud note)
+      history=(map note-id=@ud (list note-revision))
   ==
 ::
 ::  Actions (client → agent)
@@ -237,18 +248,27 @@
 ::  Versioned state — newest first
 ::  ============================================================
 ::
-::  state-8: current — nested ACUR types, u-notebook log, updated-by on entities
-+$  state-8  ::  current
-  $:  %8
+::  state-9: current — visibility + history moved per-notebook; members renamed
++$  state-9  ::  current
+  $:  %9
       books=(map flag [=net =notebook-state])
+      next-id=@ud
+      published=(map [=flag note-id=@ud] @t)
+      invites=(map flag invite-info)
+  ==
+::
++$  state  state-9
+::
+::  state-8: adds updated-by, u-notebook log; visibilities + history at top level
++$  state-8
+  $:  %8
+      books=(map flag [=net =notebook-state-v8])
       next-id=@ud
       published=(map [=flag note-id=@ud] @t)
       visibilities=(map flag visibility)
       invites=(map flag invite-info)
       history=(map [=flag note-id=@ud] (list note-revision))
   ==
-::
-+$  state  state-8
 ::
 ::  Legacy entity types — for migrating states 0-7 which lack updated-by
 ::  on notebook and folder.
