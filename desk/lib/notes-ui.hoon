@@ -1792,10 +1792,15 @@ async function connect() {
   setConnectionState("connected");
 
   openChannel();
+
   // loadNotebooks, loadPublished, loadInvites are independent scries — fire
   // them in parallel to shave roundtrips off the bootstrap.
   await Promise.all([loadNotebooks(), loadPublished(), loadInvites()]);
-  subscribeInbox();
+  // Await subscribeInbox so the SSE listener (started inside it after the
+  // first PUT brings the channel into existence) is live before the user
+  // can issue any pokeAction. Otherwise pokeAction's await for poke-ack
+  // hangs until the 15s timeout.
+  await subscribeInbox();
   // Embed mode pins the UI to a specific notebook from the URL; this takes
   // precedence over both the route and any restored localStorage selection.
   const embedApplied = await applyEmbedNotebook();
@@ -2317,6 +2322,11 @@ async function subscribeInbox() {
     ship: SHIP.replace("~", ""),
     app: "notes", path: "/v0/inbox/stream"
   }]);
+  // The PUT just brought the channel into existence server-side. Start
+  // the SSE listener now so subsequent pokeAction calls can receive
+  // their poke-acks (subscribeEvents on notebook-select can no-op the
+  // start since SSE is already live).
+  startSSE();
 }
 
 function applyInboxEvent(evt) {

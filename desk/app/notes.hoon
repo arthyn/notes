@@ -78,7 +78,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'master-v0.9.0-merge-v1'
+++  dummy  'debug-dummy-back-v1'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -781,6 +781,9 @@
           ['title' s+title.info]
       ==
     ``json+!>([%a items])
+    ::  /x/debug/dummy — current ++dummy value for tooling readiness checks
+      [%x %debug %dummy ~]
+    ``json+!>(s+dummy)
   ==
 ::
 ++  agent
