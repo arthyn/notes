@@ -7,11 +7,12 @@ import { openSubscriberContext } from "../fixtures/notes";
 test.describe("@cross-ship edit propagation", () => {
   test.skip(!process.env.SUB_CODE, "SUB_CODE not set — skipping cross-ship spec");
 
-  test("sub's note edits propagate to host live", async ({ notes, page, browser }) => {
+  test("sub's note edits propagate to host live", async ({ notes, cleanup, page, browser }) => {
     test.setTimeout(180_000);
 
     const title = `e2e-edit-${Date.now()}`;
     const subPatp = process.env.SUB_PATP || "";
+    cleanup.add("host: delete edit notebook", () => notes.tryDelete(title));
 
     // Host creates + publicizes + invites
     await notes.createNotebook(title);
@@ -23,6 +24,10 @@ test.describe("@cross-ship edit propagation", () => {
 
     // Sub joins
     const sub = await openSubscriberContext(browser);
+    cleanup.add("sub: leave edit notebook + close ctx", async () => {
+      await sub.notes.tryDelete(title);
+      await sub.context.close();
+    });
     await sub.page.locator(`.invite-item:has-text('${title}') button:has-text('Accept')`).click();
     await expect(sub.page.locator(`.nb-item:has-text('${title}')`)).toBeVisible({ timeout: 15_000 });
     await sub.notes.selectNotebook(title);
@@ -46,12 +51,6 @@ test.describe("@cross-ship edit propagation", () => {
     await sub.notes.editNoteBody(newBody);
     await sub.notes.forceSave();
     await expect(page.locator("#editor")).toHaveValue(newBody, { timeout: 15_000 });
-
-    // Cleanup
-    await sub.notes.openNotebookSettings();
-    await sub.page.once("dialog", (d) => d.accept());
-    await sub.page.locator("#nb-menu-leave, button:has-text('Leave')").first().click();
-    await sub.context.close();
-    await notes.deleteNotebook();
+    // Cleanup runs via the cleanup fixture (afterEach).
   });
 });

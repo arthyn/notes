@@ -4,12 +4,13 @@ import { test, expect } from "../fixtures/notes";
 // Header label tracks the active folder.
 
 test.describe("folder navigation", () => {
-  test("up button walks back to root; header label updates", async ({ notes, page }) => {
+  test("up button walks back to root; header label updates", async ({ notes, cleanup, page }) => {
     test.setTimeout(60_000);
 
     const nb = `e2e-fn-${Date.now()}`;
     const parent = "Parent";
     const child = "Child";
+    cleanup.add("delete folder-nav notebook", () => notes.tryDelete(nb));
 
     await notes.createNotebook(nb);
     await notes.selectNotebook(nb);

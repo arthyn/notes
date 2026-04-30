@@ -5,12 +5,13 @@ import { test, expect } from "../fixtures/notes";
 // publish/unpublish action path end-to-end.
 
 test.describe("publish + unpublish", () => {
-  test("publish serves HTML; unpublish 404s", async ({ notes, page, context }) => {
+  test("publish serves HTML; unpublish 404s", async ({ notes, cleanup, page, context }) => {
     test.setTimeout(60_000);
 
     const title = `e2e-publish-${Date.now()}`;
     const noteTitle = "Public note";
     const noteBody = "Hello from the test suite.";
+    cleanup.add("delete publish notebook", () => notes.tryDelete(title));
 
     const flag = await notes.createNotebook(title);
     await notes.selectNotebook(title);

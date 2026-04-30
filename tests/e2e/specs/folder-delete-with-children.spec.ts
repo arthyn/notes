@@ -4,12 +4,13 @@ import { test, expect } from "../fixtures/notes";
 // Deny → folder stays. Accept → folder + children gone.
 
 test.describe("folder delete with children", () => {
-  test("non-recursive delete on empty folder succeeds; populated folder asks for confirmation", async ({ notes, page }) => {
+  test("non-recursive delete on empty folder succeeds; populated folder asks for confirmation", async ({ notes, cleanup, page }) => {
     test.setTimeout(60_000);
 
     const nb = `e2e-fd-${Date.now()}`;
     const folder = "Populated";
     const noteTitle = "Inside note";
+    cleanup.add("delete folder-delete notebook", () => notes.tryDelete(nb));
 
     await notes.createNotebook(nb);
     await notes.selectNotebook(nb);

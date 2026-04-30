@@ -6,12 +6,13 @@ import { test, expect } from "../fixtures/notes";
 // content persisted.
 
 test.describe("auto-save core loop", () => {
-  test("typing + tab-hidden flush persists the body across reload", async ({ notes, page }) => {
+  test("typing + tab-hidden flush persists the body across reload", async ({ notes, cleanup, page }) => {
     test.setTimeout(60_000);
 
     const nb = `e2e-auto-${Date.now()}`;
     const noteTitle = "Drafty";
     const body = "First sentence.\n\nSecond sentence after blank line.";
+    cleanup.add("delete auto-save notebook", () => notes.tryDelete(nb));
 
     await notes.createNotebook(nb);
     await notes.selectNotebook(nb);

@@ -8,13 +8,18 @@ import { openSubscriberContext } from "../fixtures/notes";
 test.describe("@cross-ship leave notebook", () => {
   test.skip(!process.env.SUB_CODE, "SUB_CODE not set — skipping cross-ship spec");
 
-  test("leave removes the notebook from sub's sidebar", async ({ notes, browser }) => {
+  test("leave removes the notebook from sub's sidebar", async ({ notes, cleanup, browser }) => {
     test.setTimeout(120_000);
 
     const title = `e2e-leave-${Date.now()}`;
     const subPatp = process.env.SUB_PATP || "";
+    cleanup.add("host: delete leave notebook", () => notes.tryDelete(title));
 
     const sub = await openSubscriberContext(browser);
+    cleanup.add("sub: best-effort leave + close ctx", async () => {
+      await sub.notes.tryDelete(title);
+      await sub.context.close();
+    });
 
     // Host invites; sub accepts
     await notes.createNotebook(title);
@@ -32,9 +37,6 @@ test.describe("@cross-ship leave notebook", () => {
 
     // Sub's sidebar no longer shows the notebook.
     await expect(subRow).toHaveCount(0, { timeout: 15_000 });
-
-    // Cleanup
-    await sub.context.close();
-    await notes.deleteNotebook();
+    // Cleanup runs via the cleanup fixture (afterEach).
   });
 });

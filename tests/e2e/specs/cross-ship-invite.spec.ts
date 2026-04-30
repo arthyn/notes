@@ -9,16 +9,21 @@ import { openSubscriberContext } from "../fixtures/notes";
 test.describe("@cross-ship invite flow", () => {
   test.skip(!process.env.SUB_CODE, "SUB_CODE not set — skipping cross-ship spec");
 
-  test("host invites sub → sub sees invite live → accept makes notebook appear", async ({ notes, page, browser }) => {
+  test("host invites sub → sub sees invite live → accept makes notebook appear", async ({ notes, cleanup, page, browser }) => {
     test.setTimeout(120_000);
 
     const title = `e2e-invite-${Date.now()}`;
     const subPatp = process.env.SUB_PATP || "";
     expect(subPatp).toMatch(/^~/);
+    cleanup.add("host: delete invite notebook", () => notes.tryDelete(title));
 
     // Open sub context BEFORE the host sends the invite, so the SSE
     // subscription is live and we exercise the live-delivery path.
     const sub = await openSubscriberContext(browser);
+    cleanup.add("sub: leave invite notebook + close ctx", async () => {
+      await sub.notes.tryDelete(title);
+      await sub.context.close();
+    });
     // Make sure sub doesn't have a leftover invite from a prior run
     await sub.page.locator(`.invite-item:has-text('${title}')`).count();
 
@@ -40,14 +45,6 @@ test.describe("@cross-ship invite flow", () => {
     // Sub: accept — notebook appears in sidebar
     await sub.page.locator(`.invite-item:has-text('${title}') button:has-text('Accept')`).click();
     await expect(sub.page.locator(`.nb-item:has-text('${title}')`)).toBeVisible({ timeout: 15_000 });
-
-    // Cleanup
-    await sub.notes.selectNotebook(title);
-    // Sub leaves
-    await sub.notes.openNotebookSettings();
-    await sub.page.once("dialog", (d) => d.accept());
-    await sub.page.locator("#nb-menu-leave, button:has-text('Leave')").first().click();
-    await sub.context.close();
-    await notes.deleteNotebook();
+    // Cleanup runs via the cleanup fixture (afterEach).
   });
 });

@@ -10,7 +10,7 @@ import { openSubscriberContext } from "../fixtures/notes";
 test.describe("@cross-ship notebook id collision", () => {
   test.skip(!process.env.SUB_CODE, "SUB_CODE not set — skipping cross-ship spec");
 
-  test("two notebooks from different hosts with same id stay separate in UI", async ({ notes, page, browser }) => {
+  test("two notebooks from different hosts with same id stay separate in UI", async ({ notes, cleanup, page, browser }) => {
     test.setTimeout(120_000);
 
     // Each fresh ship's first notebook gets id=1, root folder=2. So
@@ -19,10 +19,16 @@ test.describe("@cross-ship notebook id collision", () => {
     // vice versa), the sidebar must show two entries — not one.
     const hostTitle = `e2e-host-${Date.now()}`;
     const subTitle  = `e2e-sub-${Date.now()}`;
+    cleanup.add("host: delete host's own notebook", () => notes.tryDelete(hostTitle));
+    cleanup.add("host: leave sub's joined notebook", () => notes.tryDelete(subTitle));
 
     // Sub creates a public notebook. createNotebook returns the actual
     // flag (~ship/numeric-id) — the title is NOT the flag name.
     const sub = await openSubscriberContext(browser);
+    cleanup.add("sub: delete sub's own notebook + close ctx", async () => {
+      await sub.notes.tryDelete(subTitle);
+      await sub.context.close();
+    });
     const subFlag = await sub.notes.createNotebook(subTitle);
     await sub.notes.selectNotebook(subTitle);
     await sub.notes.ensureVisibility("public");
@@ -47,12 +53,6 @@ test.describe("@cross-ship notebook id collision", () => {
     // refreshes the sidebar — so allow generous time.
     await expect(page.locator(`.nb-item:has-text('${hostTitle}')`)).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(`.nb-item:has-text('${subTitle}')`)).toBeVisible({ timeout: 30_000 });
-
-    // Cleanup
-    await sub.notes.selectNotebook(subTitle);
-    await sub.notes.deleteNotebook();
-    await sub.context.close();
-    await notes.selectNotebook(hostTitle);
-    await notes.deleteNotebook();
+    // Cleanup runs via the cleanup fixture (afterEach).
   });
 });

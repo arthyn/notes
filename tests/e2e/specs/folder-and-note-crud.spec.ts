@@ -1,11 +1,12 @@
 import { test, expect } from "../fixtures/notes";
 
 test.describe("folder + note CRUD (single ship)", () => {
-  test("create folder, create note, save, content persists on reload", async ({ notes, page }) => {
+  test("create folder, create note, save, content persists on reload", async ({ notes, cleanup, page }) => {
     const nb = `e2e-fn-${Date.now()}`;
     const folder = "Docs";
     const noteTitle = "First note";
     const noteBody = "# Heading\n\nSome content.";
+    cleanup.add("delete folder/note notebook", () => notes.tryDelete(nb));
 
     await notes.createNotebook(nb);
     await notes.selectNotebook(nb);

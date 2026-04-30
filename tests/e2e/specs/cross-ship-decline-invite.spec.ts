@@ -7,13 +7,18 @@ import { openSubscriberContext } from "../fixtures/notes";
 test.describe("@cross-ship decline invite", () => {
   test.skip(!process.env.SUB_CODE, "SUB_CODE not set — skipping cross-ship spec");
 
-  test("decline removes the invite and doesn't join", async ({ notes, browser }) => {
+  test("decline removes the invite and doesn't join", async ({ notes, cleanup, browser }) => {
     test.setTimeout(120_000);
 
     const title = `e2e-decline-${Date.now()}`;
     const subPatp = process.env.SUB_PATP || "";
+    cleanup.add("host: delete decline notebook", () => notes.tryDelete(title));
 
     const sub = await openSubscriberContext(browser);
+    cleanup.add("sub: close decline ctx", async () => {
+      // Sub never joined (declined), so no notebook to delete — just close.
+      await sub.context.close();
+    });
 
     // Host: create + publicize + invite sub
     await notes.createNotebook(title);
@@ -29,9 +34,6 @@ test.describe("@cross-ship decline invite", () => {
     await sub.notes.declineInvite(title);
     await expect(inviteRow).toHaveCount(0, { timeout: 10_000 });
     await expect(sub.page.locator(`.nb-item:has-text('${title}')`)).toHaveCount(0);
-
-    // Cleanup
-    await sub.context.close();
-    await notes.deleteNotebook();
+    // Cleanup runs via the cleanup fixture (afterEach).
   });
 });

@@ -7,13 +7,43 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Per-test helpers built on top of the standard `test` fixture. The
 // host page lands at /notes/ pre-authenticated via storageState.
 
+// CleanupTracker — register best-effort teardown actions that run
+// after the test, regardless of pass or fail. Avoids leaking
+// e2e-* notebooks on the ship when assertions throw mid-test.
+export class CleanupTracker {
+  private actions: Array<{ label: string; fn: () => Promise<void> }> = [];
+  add(label: string, fn: () => Promise<void>) {
+    // LIFO: most recently registered runs first (mirrors typical
+    // "last-in, first-out" teardown semantics).
+    this.actions.unshift({ label, fn });
+  }
+  async run() {
+    for (const { label, fn } of this.actions) {
+      try {
+        await fn();
+      } catch (e) {
+        // Cleanup is best-effort; surface but don't fail the test.
+        console.warn(`[cleanup] "${label}" failed: ${(e as Error).message}`);
+      }
+    }
+    this.actions = [];
+  }
+}
+
 export const test = base.extend<{
   notes: NotesPage;
+  cleanup: CleanupTracker;
 }>({
   notes: async ({ page }, use) => {
     await page.goto("/notes/");
     await dismissDisclaimer(page);
     await use(new NotesPage(page));
+  },
+  cleanup: async ({}, use) => {
+    const tracker = new CleanupTracker();
+    await use(tracker);
+    // Runs after the test body — also runs when the test fails.
+    await tracker.run();
   },
 });
 
@@ -234,6 +264,50 @@ export class NotesPage {
     const lock = item.locator(".nb-lock");
     if (visible) await expect(lock).toBeVisible();
     else         await expect(lock).toHaveCount(0);
+  }
+
+  // ── Best-effort teardown ────────────────────────────────────────────────
+  // tryDelete locates the notebook by title and deletes (if owner) or
+  // leaves (if remote). Uses dispatchEvent + computed-style checks so
+  // it works against items below the sidebar fold and doesn't trip on
+  // re-render races. All errors are swallowed so afterEach cleanup
+  // doesn't fail the test on already-gone state.
+  async tryDelete(title: string) {
+    try {
+      await this.page.goto("/notes/");
+      await dismissDisclaimer(this.page);
+      // Brief wait for the sidebar to populate after boot/reload.
+      await this.page.waitForTimeout(500);
+      const item = this.page.locator(`.nb-item:has-text('${title}')`).first();
+      if ((await item.count()) === 0) return;
+      // dispatchEvent works for items past the fold (no actionability check).
+      await item.dispatchEvent("click");
+      await this.page.waitForTimeout(200);
+      // Walk up to root via the up button (gear is hidden in subfolders).
+      const up = this.page.locator("#folder-up-btn");
+      while ((await up.count()) > 0 && (await up.isVisible({ timeout: 200 }).catch(() => false))) {
+        await up.dispatchEvent("click");
+        await this.page.waitForTimeout(100);
+      }
+      const gear = this.page.locator("#notebook-settings-btn");
+      if ((await gear.count()) === 0) return;
+      await gear.dispatchEvent("click");
+      this.page.once("dialog", (d) => d.accept().catch(() => {}));
+      const del = this.page.locator("#nb-menu-delete");
+      const leave = this.page.locator("#nb-menu-leave");
+      const delShown = await del
+        .evaluate((el) => getComputedStyle(el).display !== "none")
+        .catch(() => false);
+      const leaveShown = await leave
+        .evaluate((el) => getComputedStyle(el).display !== "none")
+        .catch(() => false);
+      if (delShown) await del.dispatchEvent("click");
+      else if (leaveShown) await leave.dispatchEvent("click");
+      // Brief wait for the poke to land before the next afterEach action.
+      await this.page.waitForTimeout(500);
+    } catch {
+      // best-effort
+    }
   }
 }
 
