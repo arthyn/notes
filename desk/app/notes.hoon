@@ -85,71 +85,6 @@
 ++  emil  |=(caz=(list card) cor(cards (welp (flop caz) cards)))
 ++  give  |=(=gift:agent:gall (emit %give gift))
 ::
-::  +slugify: convert a title cord + numeric suffix into a valid @tas term.
-::  Algorithm:
-::  1. Lowercase all chars; map non-[a-z0-9] to '-'
-::  2. Collapse consecutive '-' into one
-::  3. Trim leading and trailing '-'
-::  4. Cap at 32 chars
-::  5. Default to "note" if empty
-::  6. Prefix "n-" if first char is a digit
-::  7. Append "-{suffix}" (strip dots from scot %ud output)
-++  slugify
-  |=  [t=@t suffix=@ud]
-  ^-  @tas
-  =/  chars=tape  (trip t)
-  ::  step 1: map each char to lowercase letter, digit, or '-'
-  =/  mapped=tape
-    %+  turn  chars
-    |=  c=@t
-    ^-  @t
-    ?:  &((gte c 'a') (lte c 'z'))  c
-    ?:  &((gte c 'A') (lte c 'Z'))  (add c 32)
-    ?:  &((gte c '0') (lte c '9'))  c
-    '-'
-  ::  step 2: collapse consecutive '-' into one
-  =/  collapsed=tape
-    %-  flop
-    =|  acc=tape
-    |-  ^+  acc
-    ?~  mapped  acc
-    ?:  &(=('-' i.mapped) ?=(^ acc) =('-' i.acc))
-      $(mapped t.mapped)
-    $(mapped t.mapped, acc [i.mapped acc])
-  ::  step 3: trim leading '-'
-  =/  ltrimmed=tape
-    |-  ^-  tape
-    ?~  collapsed  ~
-    ?:  =('-' i.collapsed)
-      $(collapsed t.collapsed)
-    collapsed
-  ::  step 3b: trim trailing '-'
-  =/  trimmed=tape
-    =/  rev=tape  (flop ltrimmed)
-    =/  rtrimmed=tape
-      |-  ^-  tape
-      ?~  rev  ~
-      ?:  =('-' i.rev)
-        $(rev t.rev)
-      rev
-    (flop rtrimmed)
-  ::  step 4: cap at 32 chars
-  =/  capped=tape  (scag 32 trimmed)
-  ::  step 5: default to "note" if empty
-  =/  base=tape  ?~(capped "note" capped)
-  ::  step 6: prefix "n-" if first char is a digit
-  =/  prefixed=tape
-    ?.  &(?=(^ base) (gte i.base '0') (lte i.base '9'))
-      base
-    (weld "n-" base)
-  ::  step 7: build suffix string (strip dots from scot %ud)
-  =/  raw-suf=tape  (trip (scot %ud suffix))
-  =/  suf-tape=tape
-    %+  skim  raw-suf
-    |=(c=@t !=(c '.'))
-  =/  slug=tape  (weld (weld prefixed "-") suf-tape)
-  `@tas`(crip slug)
-::
 ++  init
   ^+  cor
   %-  emit
@@ -401,6 +336,7 @@
 ++  poke
   |=  [=mark =vase]
   ^+  cor
+  |^
   ?+  mark  ~|(bad-mark+mark !!)
       %handle-http-request
     (serve-http !<([eyre-id=@ta =inbound-request:eyre] vase))
@@ -471,6 +407,87 @@
       se-abet:(se-poke:(se-abed:se-core flag) [flag c-notebook.cmd])
     ==
   ==
+  ::
+  ::  +join-remote: initiate joining a notebook on a remote ship
+  ++  join-remote
+    |=  =flag:n
+    ^+  cor
+    ?<  =(our.bowl ship.flag)
+    ?<  (~(has by books.state) flag)
+    =/  placeholder-net=net:n  [%sub *@da |]
+    =/  placeholder-nb=notebook:n
+      [0 '' ship.flag *@da *@da ship.flag]
+    =/  placeholder-nb-state=notebook-state:n
+      [placeholder-nb ~ %private ~ ~ ~]
+    =.  books.state
+      (~(put by books.state) flag [placeholder-net placeholder-nb-state])
+    ::  send %member-join command to host (wrapped in c-notes %notebook arm)
+    %-  emit
+    :+  %pass
+      /notes/join/(scot %p ship.flag)/[name.flag]
+    [%agent [ship.flag %notes] %poke notes-command+!>(`command:n`[%notebook flag [%member-join ~]])]
+  ::
+  ::  +leave-remote: leave a notebook on a remote ship
+  ++  leave-remote
+    |=  =flag:n
+    ^+  cor
+    ?>  (~(has by books.state) flag)
+    no-abet:no-leave:(no-abed:no-core flag)
+  ::
+  ::  +handle-send-invite: owner-only, fired locally. Pre-add the target ship
+  ::  to the notebook's member list and notify their %notes agent.
+  ++  handle-send-invite
+    |=  [=flag:n who=ship]
+    ^+  cor
+    ?>  =(ship.flag our.bowl)
+    =/  entry=[=net:n =notebook-state:n]
+      (~(got by books.state) flag)
+    =/  title=@t  title.notebook.notebook-state.entry
+    ::  pre-add via se-core (also enforces ownership)
+    =.  cor
+      =/  cmd=c-cmd:n  [flag [%invite who]]
+      se-abet:(se-poke:(se-abed:se-core flag) cmd)
+    ::  Poke the invitee's notes agent with %notify-invite as a c-notes
+    ::  command — actions are local-only (src must equal our), so cross-
+    ::  ship invite delivery flows through the command surface. The arm
+    ::  carries the notebook title so the inbox can render it pre-join.
+    %-  emit
+    :+  %pass
+      /notes/invite/(scot %p who)/(scot %p ship.flag)/[name.flag]
+    [%agent [who %notes] %poke notes-command+!>(`command:n`[%notify-invite flag title])]
+  ::
+  ::  +handle-notify-invite: called when a remote host pokes us with
+  ::  [%notify-invite flag title]. The sender must be the notebook host.
+  ++  handle-notify-invite
+    |=  [=flag:n title=@t from=ship]
+    ^+  cor
+    ?<  =(from our.bowl)
+    ?>  =(from ship.flag)
+    ?:  (~(has by books.state) flag)  cor
+    ?:  (~(has by invites.state) flag)  cor
+    =/  info=invite-info:n  [from now.bowl title]
+    =.  invites.state  (~(put by invites.state) flag info)
+    (give-inbox-received flag from now.bowl title)
+  ::
+  ::  +handle-accept-invite: user accepted a pending invite
+  ++  handle-accept-invite
+    |=  =flag:n
+    ^+  cor
+    ?>  =(src.bowl our.bowl)
+    =.  invites.state  (~(del by invites.state) flag)
+    =.  cor  (give-inbox-removed flag)
+    ?:  (~(has by books.state) flag)  cor
+    (join-remote flag)
+  ::
+  ::  +handle-decline-invite: user declined a pending invite
+  ++  handle-decline-invite
+    |=  =flag:n
+    ^+  cor
+    ?>  =(src.bowl our.bowl)
+    ?.  (~(has by invites.state) flag)  cor
+    =.  invites.state  (~(del by invites.state) flag)
+    (give-inbox-removed flag)
+  --
 ::
 ::  +serve-http: dispatch an HTTP request to the right responder.
 ::  Order: PWA static assets → published note → share redirect → UI fallback.
@@ -527,132 +544,6 @@
       [%give %fact [/http-response/[eyre-id]]~ %http-response-data !>(`data)]
       [%give %kick [/http-response/[eyre-id]]~ ~]
   ==
-::
-::  +a-notebook-to-c-notebook: convert a-notebook to c-notebook (same shape except %restore)
-::  %restore is rewritten to %note [id %update] with the archived body
-++  a-notebook-to-c-notebook
-  |=  nb-act=a-notebook:n
-  ^-  c-notebook:n
-  ::  a-notebook and c-notebook have identical shapes (c-notebook adds
-  ::  %member-join/%member-leave which only arrive via %notes-command, never
-  ::  via %notes-action from the client). Direct cast works for all a-notebook arms.
-  ;;(c-notebook:n nb-act)
-::
-::  +join-remote: initiate joining a notebook on a remote ship
-++  join-remote
-  |=  =flag:n
-  ^+  cor
-  ?<  =(our.bowl ship.flag)
-  ?<  (~(has by books.state) flag)
-  =/  placeholder-net=net:n  [%sub *@da |]
-  =/  placeholder-nb=notebook:n
-    [0 '' ship.flag *@da *@da ship.flag]
-  =/  placeholder-nb-state=notebook-state:n
-    [placeholder-nb ~ %private ~ ~ ~]
-  =.  books.state
-    (~(put by books.state) flag [placeholder-net placeholder-nb-state])
-  ::  send %member-join command to host (wrapped in c-notes %notebook arm)
-  %-  emit
-  :+  %pass
-    /notes/join/(scot %p ship.flag)/[name.flag]
-  [%agent [ship.flag %notes] %poke notes-command+!>(`command:n`[%notebook flag [%member-join ~]])]
-::
-::  +leave-remote: leave a notebook on a remote ship
-++  leave-remote
-  |=  =flag:n
-  ^+  cor
-  ?>  (~(has by books.state) flag)
-  no-abet:no-leave:(no-abed:no-core flag)
-::
-::  +handle-send-invite: owner-only, fired locally. Pre-add the target ship
-::  to the notebook's member list and notify their %notes agent.
-++  handle-send-invite
-  |=  [=flag:n who=ship]
-  ^+  cor
-  ?>  =(ship.flag our.bowl)
-  =/  entry=[=net:n =notebook-state:n]
-    (~(got by books.state) flag)
-  =/  title=@t  title.notebook.notebook-state.entry
-  ::  pre-add via se-core (also enforces ownership)
-  =.  cor
-    =/  cmd=c-cmd:n  [flag [%invite who]]
-    se-abet:(se-poke:(se-abed:se-core flag) cmd)
-  ::  Poke the invitee's notes agent with %notify-invite as a c-notes
-  ::  command — actions are local-only (src must equal our), so cross-
-  ::  ship invite delivery flows through the command surface. The arm
-  ::  carries the notebook title so the inbox can render it pre-join.
-  %-  emit
-  :+  %pass
-    /notes/invite/(scot %p who)/(scot %p ship.flag)/[name.flag]
-  [%agent [who %notes] %poke notes-command+!>(`command:n`[%notify-invite flag title])]
-::
-::  +handle-notify-invite: called when a remote host pokes us with
-::  [%notify-invite flag title]. The sender must be the notebook host.
-++  handle-notify-invite
-  |=  [=flag:n title=@t from=ship]
-  ^+  cor
-  ?<  =(from our.bowl)
-  ?>  =(from ship.flag)
-  ?:  (~(has by books.state) flag)  cor
-  ?:  (~(has by invites.state) flag)  cor
-  =/  info=invite-info:n  [from now.bowl title]
-  =.  invites.state  (~(put by invites.state) flag info)
-  (give-inbox-received flag from now.bowl title)
-::
-::  +handle-accept-invite: user accepted a pending invite
-++  handle-accept-invite
-  |=  =flag:n
-  ^+  cor
-  ?>  =(src.bowl our.bowl)
-  =.  invites.state  (~(del by invites.state) flag)
-  =.  cor  (give-inbox-removed flag)
-  ?:  (~(has by books.state) flag)  cor
-  (join-remote flag)
-::
-::  +handle-decline-invite: user declined a pending invite
-++  handle-decline-invite
-  |=  =flag:n
-  ^+  cor
-  ?>  =(src.bowl our.bowl)
-  ?.  (~(has by invites.state) flag)  cor
-  =.  invites.state  (~(del by invites.state) flag)
-  (give-inbox-removed flag)
-::
-::  +give-inbox-received: emit an invite-received event on /v0/inbox/stream
-++  give-inbox-received
-  |=  [=flag:n from=ship sent-at=@da title=@t]
-  ^+  cor
-  =/  evt=json
-    %-  pairs:enjs:format
-    :~  ['type' s+'invite-received']
-        ['host' s+(scot %p ship.flag)]
-        ['flagName' s+name.flag]
-        ['from' s+(scot %p from)]
-        ['sentAt' (numb:enjs:format (div (sub sent-at ~1970.1.1) ~s1))]
-        ['title' s+title]
-    ==
-  %-  give
-  [%fact [/v0/inbox/stream]~ json+!>((pairs:enjs:format ~[['type' s+'update'] ['update' evt]]))]
-::
-::  +give-inbox-removed: emit an invite-removed event on /v0/inbox/stream
-++  give-inbox-removed
-  |=  =flag:n
-  ^+  cor
-  =/  evt=json
-    %-  pairs:enjs:format
-    :~  ['type' s+'invite-removed']
-        ['host' s+(scot %p ship.flag)]
-        ['flagName' s+name.flag]
-    ==
-  %-  give
-  [%fact [/v0/inbox/stream]~ json+!>((pairs:enjs:format ~[['type' s+'update'] ['update' evt]]))]
-::
-::  +notebooks-changed-card: a fact telling subscribed UIs to re-scry notebooks
-++  notebooks-changed-card
-  ^-  card
-  =/  evt=json
-    (pairs:enjs:format ~[['type' s+'notebooks-changed']])
-  [%give %fact [/v0/inbox/stream]~ json+!>((pairs:enjs:format ~[['type' s+'update'] ['update' evt]]))]
 ::
 ++  watch
   |=  =(pole knot)
@@ -768,15 +659,82 @@
     [%eyre %bound *]  cor
   ==
 ::
-::  +can-view-flag: check if ship can view a notebook by flag
-++  can-view-flag
-  |=  [=flag:n who=ship]
-  ^-  ?
-  ?~  entry=(get-book flag)  |
-  =/  mbrs=members:n
-    members.notebook-state.u.entry
-  ?~  (~(get by mbrs) who)  |
-  &
+::  ====  utility arms  ====
+::
+::  +slugify: convert a title cord + numeric suffix into a valid @tas term.
+::  Algorithm:
+::  1. Lowercase all chars; map non-[a-z0-9] to '-'
+::  2. Collapse consecutive '-' into one
+::  3. Trim leading and trailing '-'
+::  4. Cap at 32 chars
+::  5. Default to "note" if empty
+::  6. Prefix "n-" if first char is a digit
+::  7. Append "-{suffix}" (strip dots from scot %ud output)
+++  slugify
+  |=  [t=@t suffix=@ud]
+  ^-  @tas
+  =/  chars=tape  (trip t)
+  ::  step 1: map each char to lowercase letter, digit, or '-'
+  =/  mapped=tape
+    %+  turn  chars
+    |=  c=@t
+    ^-  @t
+    ?:  &((gte c 'a') (lte c 'z'))  c
+    ?:  &((gte c 'A') (lte c 'Z'))  (add c 32)
+    ?:  &((gte c '0') (lte c '9'))  c
+    '-'
+  ::  step 2: collapse consecutive '-' into one
+  =/  collapsed=tape
+    %-  flop
+    =|  acc=tape
+    |-  ^+  acc
+    ?~  mapped  acc
+    ?:  &(=('-' i.mapped) ?=(^ acc) =('-' i.acc))
+      $(mapped t.mapped)
+    $(mapped t.mapped, acc [i.mapped acc])
+  ::  step 3: trim leading '-'
+  =/  ltrimmed=tape
+    |-  ^-  tape
+    ?~  collapsed  ~
+    ?:  =('-' i.collapsed)
+      $(collapsed t.collapsed)
+    collapsed
+  ::  step 3b: trim trailing '-'
+  =/  trimmed=tape
+    =/  rev=tape  (flop ltrimmed)
+    =/  rtrimmed=tape
+      |-  ^-  tape
+      ?~  rev  ~
+      ?:  =('-' i.rev)
+        $(rev t.rev)
+      rev
+    (flop rtrimmed)
+  ::  step 4: cap at 32 chars
+  =/  capped=tape  (scag 32 trimmed)
+  ::  step 5: default to "note" if empty
+  =/  base=tape  ?~(capped "note" capped)
+  ::  step 6: prefix "n-" if first char is a digit
+  =/  prefixed=tape
+    ?.  &(?=(^ base) (gte i.base '0') (lte i.base '9'))
+      base
+    (weld "n-" base)
+  ::  step 7: build suffix string (strip dots from scot %ud)
+  =/  raw-suf=tape  (trip (scot %ud suffix))
+  =/  suf-tape=tape
+    %+  skim  raw-suf
+    |=(c=@t !=(c '.'))
+  =/  slug=tape  (weld (weld prefixed "-") suf-tape)
+  `@tas`(crip slug)
+::
+::  +a-notebook-to-c-notebook: convert a-notebook to c-notebook (same shape except %restore)
+::  %restore is rewritten to %note [id %update] with the archived body
+++  a-notebook-to-c-notebook
+  |=  nb-act=a-notebook:n
+  ^-  c-notebook:n
+  ::  a-notebook and c-notebook have identical shapes (c-notebook adds
+  ::  %member-join/%member-leave which only arrive via %notes-command, never
+  ::  via %notes-action from the client). Direct cast works for all a-notebook arms.
+  ;;(c-notebook:n nb-act)
 ::
 ::  +get-book: lookup a notebook entry by flag
 ++  get-book
@@ -792,6 +750,16 @@
   ?~  qi  url
   (scag u.qi url)
 ::
+::  +can-view-flag: check if ship can view a notebook by flag
+++  can-view-flag
+  |=  [=flag:n who=ship]
+  ^-  ?
+  ?~  entry=(get-book flag)  |
+  =/  mbrs=members:n
+    members.notebook-state.u.entry
+  ?~  (~(get by mbrs) who)  |
+  &
+::
 ::  +find-flag-by-nid: find the flag for a notebook by numeric notebook id
 ++  find-flag-by-nid
   |=  nid=@ud
@@ -804,6 +772,42 @@
     ~
   ?~  matches  ~|(notebook-not-found+nid !!)
   i.matches
+::
+::  +notebooks-changed-card: a fact telling subscribed UIs to re-scry notebooks
+++  notebooks-changed-card
+  ^-  card
+  =/  evt=json
+    (pairs:enjs:format ~[['type' s+'notebooks-changed']])
+  [%give %fact [/v0/inbox/stream]~ json+!>((pairs:enjs:format ~[['type' s+'update'] ['update' evt]]))]
+::
+::  +give-inbox-received: emit an invite-received event on /v0/inbox/stream
+++  give-inbox-received
+  |=  [=flag:n from=ship sent-at=@da title=@t]
+  ^+  cor
+  =/  evt=json
+    %-  pairs:enjs:format
+    :~  ['type' s+'invite-received']
+        ['host' s+(scot %p ship.flag)]
+        ['flagName' s+name.flag]
+        ['from' s+(scot %p from)]
+        ['sentAt' (numb:enjs:format (div (sub sent-at ~1970.1.1) ~s1))]
+        ['title' s+title]
+    ==
+  %-  give
+  [%fact [/v0/inbox/stream]~ json+!>((pairs:enjs:format ~[['type' s+'update'] ['update' evt]]))]
+::
+::  +give-inbox-removed: emit an invite-removed event on /v0/inbox/stream
+++  give-inbox-removed
+  |=  =flag:n
+  ^+  cor
+  =/  evt=json
+    %-  pairs:enjs:format
+    :~  ['type' s+'invite-removed']
+        ['host' s+(scot %p ship.flag)]
+        ['flagName' s+name.flag]
+    ==
+  %-  give
+  [%fact [/v0/inbox/stream]~ json+!>((pairs:enjs:format ~[['type' s+'update'] ['update' evt]]))]
 ::
 ::  ====  se-core: server/host core  ====
 ::
