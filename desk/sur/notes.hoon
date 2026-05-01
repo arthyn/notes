@@ -242,6 +242,24 @@
       [%sub =time init=_|]
   ==
 ::
+::  Scry response types — typed marks for peek endpoints
+::  ============================================================
+::
+::  $notebook-summary: one item from /v0/notebooks (carries flag + visibility)
++$  notebook-summary  [=flag =notebook =visibility]
+::
+::  $notebook-detail: one item from /v0/notebook/~ship/name
++$  notebook-detail   [=flag =notebook]
+::
+::  $member-record: one item from /v0/members list
++$  member-record     [=ship =role]
+::
+::  $invite-record: one item from /v0/invites list
++$  invite-record     [=flag =invite-info]
+::
+::  $published-record: one item from /v0/published list
++$  published-record  [=flag note-id=@ud html=@t]
+::
 ::  Type aliases
 +$  action    a-notes
 +$  command   c-notes

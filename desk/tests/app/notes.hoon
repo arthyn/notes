@@ -100,25 +100,23 @@
 ::
 ++  peek-history
   |=  [=flag:n nid=@ud]
-  =/  m  (mare ,(list json))
-  ^-  form:m
+  =/  m  (mare ,(list note-revision:n))
   =/  pax=path
     /x/v0/note-history/(scot %p ship.flag)/[name.flag]/(scot %ud nid)
+  ^-  form:m
   |=  s=state
   =/  peek=(unit (unit cage))  (~(on-peek agent.s bowl.s) pax)
   ?~  peek  |+~['scry path invalid: history']
   ?~  u.peek  |+~['scry path empty: history']
   =/  cag=cage  u.u.peek
-  ?.  =(p.cag %json)  |+~['expected json mark for history scry']
-  =/  jv=json  !<(json q.cag)
-  ?.  ?=([%a *] jv)  |+~['expected json array for history scry']
-  &+[p.jv s]
+  ?.  =(p.cag %notes-note-history)  |+~['expected notes-note-history mark for history scry']
+  &+[!<((list note-revision:n) q.cag) s]
 ::
 ++  ex-history-len
   |=  [=flag:n nid=@ud expected=@ud]
   =/  m  (mare ,~)
   ^-  form:m
-  ;<  items=(list json)  bind:m  (peek-history flag nid)
+  ;<  items=(list note-revision:n)  bind:m  (peek-history flag nid)
   |=  s=state
   =/  got=@ud  (lent items)
   ?:  =(got expected)
@@ -126,26 +124,18 @@
   |+~[(crip "expected {<expected>} history entries, got {<got>}")]
 ::
 ++  get-history-bodies
-  |=  items=(list json)
+  |=  items=(list note-revision:n)
   ^-  (list @t)
   %+  turn  items
-  |=  jv=json
-  ?.  ?=([%o *] jv)  ''
-  =/  body=(unit json)  (~(get by p.jv) 'bodyMd')
-  ?~  body  ''
-  ?.  ?=([%s *] u.body)  ''
-  p.u.body
+  |=  nr=note-revision:n
+  body-md.nr
 ::
 ++  get-history-revs
-  |=  items=(list json)
+  |=  items=(list note-revision:n)
   ^-  (list @ud)
   %+  turn  items
-  |=  jv=json
-  ?.  ?=([%o *] jv)  0
-  =/  r=(unit json)  (~(get by p.jv) 'rev')
-  ?~  r  0
-  ?.  ?=([%n *] u.r)  0
-  (rash p.u.r dem)
+  |=  nr=note-revision:n
+  rev.nr
 ::
 ::  +ex-cards-ne: assert at least one card was emitted
 ++  ex-cards-ne
@@ -164,21 +154,22 @@
   ^-  form:m
   (ex-equal !>(p.cag) !>(`mark`%json))
 ::
-::  +ex-gone: assert scry returns a null-json cage (item deleted/missing)
+::  +ex-mark: assert cage has the given mark
+++  ex-mark
+  |=  [cag=cage expected=@tas]
+  =/  m  (mare ,~)
+  ^-  form:m
+  (ex-equal !>(p.cag) !>(`@tas`expected))
+::
+::  +ex-gone: assert scry returns outer-null (item deleted/missing)
 ++  ex-gone
   |=  res=(unit (unit cage))
   =/  m  (mare ,~)
   ^-  form:m
   |=  s=state
   ?~  res
-    |+['expected outer non-null scry result']~
-  ?~  u.res
-    |+['expected inner non-null cage (null-json)']~
-  ?.  =(p.u.u.res %json)
-    |+['expected mark %json for null-result']~
-  ?.  =(0 q.q.u.u.res)
-    |+['expected null json value (0)']~
-  &+[~ s]
+    &+[~ s]
+  |+['expected outer-null scry result for deleted item']~
 ::
 ::  ====  test-create-notebook  ====
 ::  Creates notebook (id=1, root-folder=2); verifies folder and membership exist.
@@ -193,9 +184,9 @@
   ;<  ~  b  (ex-cards-ne caz)
   =/  f=flag:n  (nb-flag our.bowl 'My Notebook' 1)
   ;<  root=cage  b  (peek-fld f 2)
-  ;<  ~  b  (ex-json root)
+  ;<  ~  b  (ex-mark root %notes-folder)
   ;<  mbrs=cage  b  (peek-mbrs f)
-  (ex-json mbrs)
+  (ex-mark mbrs %notes-members)
 ::
 ::  ====  test-rename-notebook  ====
 ++  test-rename-notebook
@@ -210,7 +201,7 @@
   ;<  caz=(list card)  b  (poke-a [%notebook f [%rename 'Renamed']])
   ;<  ~  b  (ex-cards-ne caz)
   ;<  nb=cage  b  (got-peek /x/v0/notebook/(scot %p ship.f)/[name.f])
-  (ex-json nb)
+  (ex-mark nb %notes-notebook)
 ::
 ::  ====  test-delete-notebook  ====
 ++  test-delete-notebook
@@ -260,7 +251,7 @@
   ;<  ~  b  (ex-cards-ne caz)
   ;<  *  b  (set-src our.bowl)
   ;<  mbrs=cage  b  (peek-mbrs f)
-  (ex-json mbrs)
+  (ex-mark mbrs %notes-members)
 ::
 ::  ====  test-join-private-rejects-non-member  ====
 ::  Non-member ~bus tries joining a private notebook — must crash.
@@ -289,7 +280,7 @@
   ;<  caz=(list card)  b  (poke-a [%notebook f [%create-folder `2 'Docs']])
   ;<  ~  b  (ex-cards-ne caz)
   ;<  fld=cage  b  (peek-fld f 3)
-  (ex-json fld)
+  (ex-mark fld %notes-folder)
 ::
 ::  ====  test-create-folder-nested  ====
 ::  Sub-folder under Docs (id=3); new folder gets id=4.
@@ -306,7 +297,7 @@
   ;<  caz=(list card)  b  (poke-a [%notebook f [%create-folder `3 'Sub']])
   ;<  ~  b  (ex-cards-ne caz)
   ;<  sub=cage  b  (peek-fld f 4)
-  (ex-json sub)
+  (ex-mark sub %notes-folder)
 ::
 ::  ====  test-rename-folder  ====
 ++  test-rename-folder
@@ -406,7 +397,7 @@
   ;<  caz=(list card)  b  (poke-a [%notebook f [%create-note 2 'Hello' '# Hello']])
   ;<  ~  b  (ex-cards-ne caz)
   ;<  nt=cage  b  (peek-nt f 3)
-  (ex-json nt)
+  (ex-mark nt %notes-note)
 ::
 ::  ====  test-rename-note  ====
 ++  test-rename-note
@@ -473,7 +464,7 @@
   ::  revision is now 2; expected-revision=1 is stale — must crash
   ;<  ~  b  (ex-fail (poke-a [%notebook f [%note 3 [%update 'v4' 1]]]))
   ;<  nt=cage  b  (peek-nt f 3)
-  (ex-json nt)
+  (ex-mark nt %notes-note)
 ::
 ::  ====  test-update-note-stale-zero-rejects  ====
 ::  expected-revision=0 on a note with revision>0 must crash (strict, no force-update).
@@ -491,7 +482,7 @@
   ::  revision is now 1; expected-revision=0 is stale — must crash
   ;<  ~  b  (ex-fail (poke-a [%notebook f [%note 3 [%update 'clobbered' 0]]]))
   ;<  nt=cage  b  (peek-nt f 3)
-  (ex-json nt)
+  (ex-mark nt %notes-note)
 ::
 ::  ====  test-update-note-at-revision-zero-succeeds  ====
 ::  First edit (revision=0, expected=0) must succeed.
@@ -542,11 +533,11 @@
   ;<  caz=(list card)  b  (poke-a [%notebook f [%batch-import 2 items]])
   ;<  ~  b  (ex-cards-ne caz)
   ;<  n3=cage  b  (peek-nt f 3)
-  ;<  ~  b  (ex-json n3)
+  ;<  ~  b  (ex-mark n3 %notes-note)
   ;<  n4=cage  b  (peek-nt f 4)
-  ;<  ~  b  (ex-json n4)
+  ;<  ~  b  (ex-mark n4 %notes-note)
   ;<  n5=cage  b  (peek-nt f 5)
-  (ex-json n5)
+  (ex-mark n5 %notes-note)
 ::
 ::  ====  test-batch-import-tree  ====
 ::  Subfolder Sub (id=3), NoteA (id=4), NoteB (id=5), Root (id=6).
@@ -566,13 +557,13 @@
   ;<  caz=(list card)  b  (poke-a [%notebook f [%batch-import-tree 2 tree]])
   ;<  ~  b  (ex-cards-ne caz)
   ;<  sub=cage   b  (peek-fld f 3)
-  ;<  ~  b  (ex-json sub)
+  ;<  ~  b  (ex-mark sub %notes-folder)
   ;<  na=cage    b  (peek-nt f 4)
-  ;<  ~  b  (ex-json na)
+  ;<  ~  b  (ex-mark na %notes-note)
   ;<  nb-c=cage  b  (peek-nt f 5)
-  ;<  ~  b  (ex-json nb-c)
+  ;<  ~  b  (ex-mark nb-c %notes-note)
   ;<  nr=cage    b  (peek-nt f 6)
-  (ex-json nr)
+  (ex-mark nr %notes-note)
 ::
 ::  ====  test-publish-note  ====
 ++  test-publish-note
@@ -587,10 +578,10 @@
   ;<  *  b  (poke-a [%notebook f [%create-note 2 'Article' '# Hello']])
   ;<  *  b  (poke-a [%notebook f [%note 3 [%publish '<h1>Hello</h1>']]])
   ;<  pub=cage  b  (got-peek /x/v0/published)
-  ;<  ~  b  (ex-json pub)
+  ;<  ~  b  (ex-mark pub %notes-published)
   ;<  *  b  (poke-a [%notebook f [%note 3 [%unpublish ~]]])
   ;<  pub2=cage  b  (got-peek /x/v0/published)
-  (ex-json pub2)
+  (ex-mark pub2 %notes-published)
 ::
 ::  ====  test-create-and-update-archives-prior-rev  ====
 ::  After a single update, history has exactly one entry containing
@@ -607,7 +598,7 @@
   ;<  *  b  (poke-a [%notebook f [%create-note 2 'Note' 'v1']])
   ;<  *  b  (poke-a [%notebook f [%note 3 [%update 'v2' 0]]])
   ;<  ~  b  (ex-history-len f 3 1)
-  ;<  items=(list json)  b  (peek-history f 3)
+  ;<  items=(list note-revision:n)  b  (peek-history f 3)
   =/  bodies=(list @t)  (get-history-bodies items)
   =/  revs=(list @ud)  (get-history-revs items)
   |=  s=state
@@ -632,7 +623,7 @@
   ;<  *  b  (poke-a [%notebook f [%note 3 [%update 'v3' 1]]])
   ;<  *  b  (poke-a [%notebook f [%note 3 [%update 'v4' 2]]])
   ;<  ~  b  (ex-history-len f 3 3)
-  ;<  items=(list json)  b  (peek-history f 3)
+  ;<  items=(list note-revision:n)  b  (peek-history f 3)
   =/  bodies=(list @t)  (get-history-bodies items)
   =/  revs=(list @ud)  (get-history-revs items)
   |=  s=state
@@ -673,7 +664,7 @@
   ;<  *  b  (poke-a [%notebook f [%note 3 [%update 'v3' 1]]])
   ;<  *  b  (poke-a [%notebook f [%note 3 [%update 'v1' 2]]])
   ;<  ~  b  (ex-history-len f 3 3)
-  ;<  items=(list json)  b  (peek-history f 3)
+  ;<  items=(list note-revision:n)  b  (peek-history f 3)
   =/  bodies=(list @t)  (get-history-bodies items)
   |=  s=state
   ?.  =(['v3' 'v2' 'v1' ~] bodies)
@@ -701,15 +692,11 @@
   ;<  nt=cage  b
     (got-peek /x/v0/note/(scot %p ship.f)/[name.f]/'3')
   |=  s=state
-  =/  jv=json  !<(json q.nt)
-  ?.  ?=([%o *] jv)
-    |+['expected note json object']~
-  =/  rev-j=(unit json)  (~(get by p.jv) 'revision')
-  ?~  rev-j  |+['expected revision field']~
-  ?.  ?=([%n *] u.rev-j)  |+['expected revision to be a number']~
-  =/  rev=@ud  (rash p.u.rev-j dem)
-  ?.  =(rev 1)
-    |+~[(crip "expected rev=1 after update+rename, got rev={<rev>}")]
+  ?.  =(p.nt %notes-note)
+    |+['expected notes-note mark']~
+  =/  nt-val=note:n  !<(note:n q.nt)
+  ?.  =(revision.nt-val 1)
+    |+~[(crip "expected rev=1 after update+rename, got rev={<revision.nt-val>}")]
   &+[~ s]
 ::
 ::  ====  test-history-empty-on-fresh-note  ====
@@ -883,7 +870,7 @@
   ::  notebook now lives under slug 'migrated-1'
   =/  new-slug=@tas  (slugify-test 'Migrated' 1)
   ;<  nb-cag=cage  b  (got-peek /x/v0/notebook/(scot %p ~zod)/[new-slug])
-  (ex-json nb-cag)
+  (ex-mark nb-cag %notes-notebook)
 ::
 ::  ====  test-migrate-state-3-to-10  ====
 ++  test-migrate-state-3-to-10
@@ -929,11 +916,11 @@
   ;<  sv=vase  b  get-save
   ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
   ;<  pub=cage  b  (got-peek /x/v0/published)
-  ;<  ~  b  (ex-json pub)
-  =/  jv=json  !<(json q.pub)
+  ;<  ~  b  (ex-mark pub %notes-published)
   |=  s=state
-  ?.  ?=([%a ~] jv)
-    |+['expected empty json array for published after state-2 migration']~
+  =/  items  !<((list published-record:n) q.pub)
+  ?.  =(~ items)
+    |+['expected empty published list after state-2 migration']~
   &+[~ s]
 ::
 ::  ====  test-migrate-state-1-to-10  ====

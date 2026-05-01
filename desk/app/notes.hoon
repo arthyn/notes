@@ -78,7 +78,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'v0.10.0-type-prefix-n'
+++  dummy  'v0.10.0-typed-peek-marks'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -490,48 +490,33 @@
     ``html+!>(index:ui)
     ::  /x/v0/notebooks — list all notebooks (cross-cutting, no flag)
       [%x %v0 %notebooks ~]
-    =/  nbs=(list json)
+    =/  summaries=(list notebook-summary:n)
       %+  murn  ~(tap by books.state)
       |=  [=flag:n [=net:n =notebook-state:n]]
       ?.  (can-view-flag flag src.bowl)  ~
-      =-  `(pairs:enjs:format -)
-      :~  ['host' s+(scot %p ship.flag)]
-          ['flagName' s+name.flag]
-          ['notebook' (notebook:enjs:notes-json notebook.notebook-state)]
-          ['visibility' s+(scot %tas visibility.notebook-state)]
-      ==
-    ``json+!>([%a nbs])
+      `[flag notebook.notebook-state visibility.notebook-state]
+    ``notes-notebooks+!>(summaries)
     ::  /x/v0/published — list of {host, flagName, noteId} for each published note
       [%x %v0 %published ~]
-    =/  items=(list json)
-      %+  turn  ~(tap in ~(key by published.state))
-      |=  [=flag:n note-id=@ud]
-      %-  pairs:enjs:format
-      :~  ['host' s+(scot %p ship.flag)]
-          ['flagName' s+name.flag]
-          ['noteId' (numb:enjs:format note-id)]
-      ==
-    ``json+!>([%a items])
+    =/  pub-records=(list published-record:n)
+      %+  turn  ~(tap by published.state)
+      |=  [[=flag:n note-id=@ud] html=@t]
+      [flag note-id html]
+    ``notes-published+!>(pub-records)
     ::  /x/v0/invites — pending invites we've received
       [%x %v0 %invites ~]
-    =/  items=(list json)
+    =/  inv-records=(list invite-record:n)
       %+  turn  ~(tap by invites.state)
       |=  [=flag:n info=invite-info:n]
-      %-  pairs:enjs:format
-      :~  ['host' s+(scot %p ship.flag)]
-          ['flagName' s+name.flag]
-          ['from' s+(scot %p from.info)]
-          ['sentAt' (numb:enjs:format (div (sub sent-at.info ~1970.1.1) ~s1))]
-          ['title' s+title.info]
-      ==
-    ``json+!>([%a items])
+      [flag info]
+    ``notes-invites+!>(inv-records)
     ::  /x/debug/dummy — current ++dummy value for tooling readiness checks
       [%x %debug %dummy ~]
     ``json+!>(s+dummy)
     ::  /x/v0/<kind>/<ship>/<name>[/<rest>] — delegate to no-peek
       [%x %v0 kind=@ ship=@ name=@ rest=*]
     =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
-    ?~  (~(get by books.state) flag)  ``json+!>(~)
+    ?~  (~(get by books.state) flag)  ~
     (no-peek:(no-abed:no-core flag) kind.pole rest.pole)
   ==
 ::
@@ -1523,54 +1508,43 @@
     ?>  ?=(^ (~(get by members.notebook-state) src.bowl))
     ?+  kind  ~
         %notebook
-      =-  ``json+!>((pairs:enjs:format -))
-      :~  ['host' s+(scot %p ship.flag)]
-          ['flagName' s+name.flag]
-          ['notebook' (notebook:enjs:notes-json notebook.notebook-state)]
-      ==
+      =/  nd=notebook-detail:n  [flag notebook.notebook-state]
+      ``notes-notebook+!>(nd)
     ::
         %folders
-      =/  flds=(list json)
-        %+  turn  ~(val by folders.notebook-state)
-        folder:enjs:notes-json
-      ``json+!>([%a flds])
+      =/  flds=(list folder:n)
+        ~(val by folders.notebook-state)
+      ``notes-folders+!>(flds)
     ::
         %notes
-      =/  nts=(list json)
-        %+  turn  ~(val by notes.notebook-state)
-        note:enjs:notes-json
-      ``json+!>([%a nts])
+      =/  nts=(list note:n)
+        ~(val by notes.notebook-state)
+      ``notes-notes+!>(nts)
     ::
         %note
       =/  nid=@ud  (slav %ud ;;(@ -.rest))
       ?~  nt=(~(get by notes.notebook-state) nid)
-        ``json+!>(~)
-      ``json+!>((note:enjs:notes-json u.nt))
+        ~
+      ``notes-note+!>(u.nt)
     ::
         %note-history
       =/  nid=@ud  (slav %ud ;;(@ -.rest))
       =/  revs=(list note-revision:n)
         (fall (~(get by history.notebook-state) nid) ~)
-      =/  items=(list json)
-        %+  turn  revs
-        note-revision:enjs:notes-json
-      ``json+!>([%a items])
+      ``notes-note-history+!>(revs)
     ::
         %folder
       =/  fid=@ud  (slav %ud ;;(@ -.rest))
       ?~  fld=(~(get by folders.notebook-state) fid)
-        ``json+!>(~)
-      ``json+!>((folder:enjs:notes-json u.fld))
+        ~
+      ``notes-folder+!>(u.fld)
     ::
         %members
-      =/  mlist=(list json)
+      =/  mrecords=(list member-record:n)
         %+  turn  ~(tap by members.notebook-state)
         |=  [who=ship r=role:n]
-        %-  pairs:enjs:format
-        :~  ['ship' s+(scot %p who)]
-            ['role' s+(scot %tas r)]
-        ==
-      ``json+!>([%a mlist])
+        [who r]
+      ``notes-members+!>(mrecords)
     ==
   ::
   ::  +no-watch: handle local UI stream subscription for this notebook

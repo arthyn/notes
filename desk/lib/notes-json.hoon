@@ -201,6 +201,100 @@
       ==
     ==
   ::
+  ::  +notebook-summary: encode one /v0/notebooks item
+  ++  notebook-summary
+    |=  ns=notebook-summary:n
+    ^-  json
+    %-  pairs
+    :~  ['host' s+(scot %p ship.flag.ns)]
+        ['flagName' s+name.flag.ns]
+        ['notebook' (notebook notebook.ns)]
+        ['visibility' s+(scot %tas visibility.ns)]
+    ==
+  ::
+  ::  +notebook-summaries: encode (list notebook-summary)
+  ++  notebook-summaries
+    |=  items=(list notebook-summary:n)
+    ^-  json
+    [%a (turn items notebook-summary)]
+  ::
+  ::  +notebook-detail: encode one /v0/notebook item
+  ++  notebook-detail
+    |=  nd=notebook-detail:n
+    ^-  json
+    %-  pairs
+    :~  ['host' s+(scot %p ship.flag.nd)]
+        ['flagName' s+name.flag.nd]
+        ['notebook' (notebook notebook.nd)]
+    ==
+  ::
+  ::  +member-record: encode one /v0/members item
+  ++  member-record
+    |=  mr=member-record:n
+    ^-  json
+    %-  pairs
+    :~  ['ship' s+(scot %p ship.mr)]
+        ['role' s+(scot %tas role.mr)]
+    ==
+  ::
+  ::  +member-records: encode (list member-record)
+  ++  member-records
+    |=  items=(list member-record:n)
+    ^-  json
+    [%a (turn items member-record)]
+  ::
+  ::  +invite-record: encode one /v0/invites item
+  ++  invite-record
+    |=  ir=invite-record:n
+    ^-  json
+    %-  pairs
+    :~  ['host' s+(scot %p ship.flag.ir)]
+        ['flagName' s+name.flag.ir]
+        ['from' s+(scot %p from.invite-info.ir)]
+        ['sentAt' (numb (da-to-unix sent-at.invite-info.ir))]
+        ['title' s+title.invite-info.ir]
+    ==
+  ::
+  ::  +invite-records: encode (list invite-record)
+  ++  invite-records
+    |=  items=(list invite-record:n)
+    ^-  json
+    [%a (turn items invite-record)]
+  ::
+  ::  +published-record: encode one /v0/published item
+  ++  published-record
+    |=  pr=published-record:n
+    ^-  json
+    %-  pairs
+    :~  ['host' s+(scot %p ship.flag.pr)]
+        ['flagName' s+name.flag.pr]
+        ['noteId' (numb note-id.pr)]
+    ==
+  ::
+  ::  +published-records: encode (list published-record)
+  ++  published-records
+    |=  items=(list published-record:n)
+    ^-  json
+    [%a (turn items published-record)]
+  ::
+  ::  +note-revisions: encode (list note-revision)
+  ++  note-revisions
+    |=  items=(list note-revision:n)
+    ^-  json
+    [%a (turn items note-revision)]
+  ::
+  ::  +folders: encode (list folder)
+  ++  folders
+    |=  items=(list folder:n)
+    ^-  json
+    [%a (turn items folder)]
+  ::
+  ::  +notes: encode (list note)
+  ++  notes
+    |=  items=(list note:n)
+    ^-  json
+    [%a (turn items note)]
+  ::
   ::  +response: encode r-notes response
   ++  response
     |=  res=response:n
