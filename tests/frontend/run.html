@@ -55,6 +55,63 @@ function isOwnSaveEchoPure(evt, savedRev, shipId, lastSaveAt, now) {
   return false;
 }
 
+// Action envelope helpers — every poke from the UI threads through these
+// to produce the nested ACUR shape the agent expects.
+function notebookAction(flag, inner) {
+  return { type: "notebook", flag, action: inner };
+}
+function folderAction(flag, folderId, inner) {
+  return { type: "notebook", flag, action: { type: "folder", id: folderId, action: inner } };
+}
+function noteAction(flag, noteId, inner) {
+  return { type: "notebook", flag, action: { type: "note", id: noteId, action: inner } };
+}
+
+// Update dispatcher — routes incoming u-notebook events to the right handler.
+// Side-effects go through `ctx` so tests can inject mocks.
+function applyNotebookUpdate(u, ctx) {
+  const type = u && u.type;
+  if (!type) return;
+  if (type === "notebook-created" || type === "notebook-updated" || type === "notebook-visibility-changed") {
+    ctx.loadNotebooks();
+  } else if (type === "notebook-deleted") {
+    ctx.loadNotebooks();
+  } else if (type === "member-joined" || type === "member-left") {
+    // membership changed — no-op unless members panel open
+  } else if (type === "invite-received" || type === "invite-removed" || type === "notebooks-changed") {
+    ctx.applyInboxEvent(u);
+  } else if (type === "folder-update") {
+    ctx.applyFolderUpdate(u.folderUpdate);
+  } else if (type === "note-update") {
+    ctx.applyNoteUpdate(u.noteUpdate);
+  }
+}
+
+// buildRoute — pure function that takes a state object instead of reading
+// globals, so tests can drive it without DOM/window dependencies.
+function buildRoutePure({ activeNotebookFlag, notebooks, activeFolderId, activeNoteId, rootFolderId }) {
+  if (!activeNotebookFlag) return "/notes/";
+  const nb = notebooks[activeNotebookFlag];
+  if (!nb) return "/notes/";
+  let path = `/notes/nb/${nb.host}/${encodeURIComponent(nb.flagName)}`;
+  if (activeFolderId && activeFolderId !== rootFolderId) path += `/f/${activeFolderId}`;
+  if (activeNoteId) path += `/n/${activeNoteId}`;
+  return path;
+}
+
+// applyRouteParse — pure URL parser. Returns null for non-matching URLs.
+function applyRouteParse(path) {
+  const m = path.match(/^\/notes\/nb\/([^/]+)\/([^/]+)(?:\/f\/(\d+))?(?:\/n\/(\d+))?\/?$/);
+  if (!m) return null;
+  return {
+    host: decodeURIComponent(m[1]),
+    flagName: decodeURIComponent(m[2]),
+    folderId: m[3] ? parseInt(m[3], 10) : null,
+    noteId: m[4] ? parseInt(m[4], 10) : null,
+    flag: `${decodeURIComponent(m[1])}/${decodeURIComponent(m[2])}`,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Tiny runner
 // ─────────────────────────────────────────────────────────────────────────
@@ -171,6 +228,276 @@ test("empty ship id → actor window cannot apply, falls to rev check", () => {
 
 test("null evt does not throw (defensive)", () => {
   eq(isOwnSaveEchoPure(null, 5, "~sampel-palnet", 999_500, 1_000_000), false);
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tests: action envelope helpers
+// ─────────────────────────────────────────────────────────────────────────
+function deepEq(actual, expected, label) {
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`${label || ""}\n  expected: ${JSON.stringify(expected)}\n  actual:   ${JSON.stringify(actual)}`);
+  }
+}
+
+suite("action envelope helpers");
+
+test("notebookAction wraps inner action with flag", () => {
+  const out = notebookAction("~zod/foo", { type: "rename", title: "x" });
+  deepEq(out, { type: "notebook", flag: "~zod/foo", action: { type: "rename", title: "x" } });
+});
+
+test("folderAction creates 3-level nest with folder id", () => {
+  const out = folderAction("~zod/foo", 7, { type: "rename", name: "docs" });
+  deepEq(out, {
+    type: "notebook",
+    flag: "~zod/foo",
+    action: { type: "folder", id: 7, action: { type: "rename", name: "docs" } }
+  });
+});
+
+test("noteAction creates 3-level nest with note id", () => {
+  const out = noteAction("~zod/foo", 12, { type: "update", body: "hi", expectedRevision: 3 });
+  deepEq(out, {
+    type: "notebook",
+    flag: "~zod/foo",
+    action: { type: "note", id: 12, action: { type: "update", body: "hi", expectedRevision: 3 } }
+  });
+});
+
+test("inner action payload does NOT include notebookId/folderId/noteId (they're in routing)", () => {
+  const out = noteAction("~zod/foo", 1, { type: "delete" });
+  const inner = out.action.action;
+  if ("notebookId" in inner || "folderId" in inner || "noteId" in inner) {
+    throw new Error(`inner payload leaked id field: ${JSON.stringify(inner)}`);
+  }
+});
+
+test("update-note uses `body` (not `bodyMd`) on the wire", () => {
+  // REGRESSION: agent decoder reads `body`; if UI sends `bodyMd` the field
+  // misses. (We hit this exact bug in batch-import-tree.)
+  const out = noteAction("~zod/foo", 1, { type: "update", body: "x", expectedRevision: 0 });
+  const inner = out.action.action;
+  if (!("body" in inner) || "bodyMd" in inner) {
+    throw new Error(`expected {body, ...}, got ${JSON.stringify(inner)}`);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tests: applyNotebookUpdate dispatch
+// ─────────────────────────────────────────────────────────────────────────
+function makeCtx() {
+  const calls = { loadNotebooks: 0, applyInboxEvent: [], applyFolderUpdate: [], applyNoteUpdate: [] };
+  return {
+    calls,
+    loadNotebooks: () => { calls.loadNotebooks++; },
+    applyInboxEvent: (u) => { calls.applyInboxEvent.push(u); },
+    applyFolderUpdate: (u) => { calls.applyFolderUpdate.push(u); },
+    applyNoteUpdate:   (u) => { calls.applyNoteUpdate.push(u); },
+  };
+}
+
+suite("applyNotebookUpdate dispatch");
+
+test("notebook-created → loadNotebooks", () => {
+  const ctx = makeCtx();
+  applyNotebookUpdate({ type: "notebook-created" }, ctx);
+  eq(ctx.calls.loadNotebooks, 1);
+});
+
+test("notebook-deleted → loadNotebooks", () => {
+  const ctx = makeCtx();
+  applyNotebookUpdate({ type: "notebook-deleted" }, ctx);
+  eq(ctx.calls.loadNotebooks, 1);
+});
+
+test("notebook-visibility-changed → loadNotebooks", () => {
+  const ctx = makeCtx();
+  applyNotebookUpdate({ type: "notebook-visibility-changed" }, ctx);
+  eq(ctx.calls.loadNotebooks, 1);
+});
+
+test("invite-received → applyInboxEvent", () => {
+  const ctx = makeCtx();
+  const u = { type: "invite-received", host: "~zod", flagName: "f", from: "~bus", title: "x" };
+  applyNotebookUpdate(u, ctx);
+  eq(ctx.calls.applyInboxEvent.length, 1);
+  eq(ctx.calls.applyInboxEvent[0].type, "invite-received");
+});
+
+test("invite-removed → applyInboxEvent", () => {
+  const ctx = makeCtx();
+  applyNotebookUpdate({ type: "invite-removed", host: "~zod", flagName: "f" }, ctx);
+  eq(ctx.calls.applyInboxEvent.length, 1);
+});
+
+test("notebooks-changed → applyInboxEvent (NOT silently dropped)", () => {
+  // REGRESSION: this was missing from applyNotebookUpdate after the master
+  // merge — caused new notebooks not to appear after accept-invite until refresh.
+  const ctx = makeCtx();
+  applyNotebookUpdate({ type: "notebooks-changed" }, ctx);
+  eq(ctx.calls.applyInboxEvent.length, 1);
+});
+
+test("folder-update → applyFolderUpdate (with folderUpdate payload)", () => {
+  const ctx = makeCtx();
+  const u = { type: "folder-update", folderUpdate: { type: "folder-created" } };
+  applyNotebookUpdate(u, ctx);
+  eq(ctx.calls.applyFolderUpdate.length, 1);
+  eq(ctx.calls.applyFolderUpdate[0].type, "folder-created");
+});
+
+test("note-update → applyNoteUpdate (with noteUpdate payload)", () => {
+  const ctx = makeCtx();
+  const u = { type: "note-update", noteUpdate: { type: "note-updated", id: 5 } };
+  applyNotebookUpdate(u, ctx);
+  eq(ctx.calls.applyNoteUpdate.length, 1);
+  eq(ctx.calls.applyNoteUpdate[0].id, 5);
+});
+
+test("member-joined / member-left → no-op (no loaders called)", () => {
+  const ctx = makeCtx();
+  applyNotebookUpdate({ type: "member-joined", who: "~bus", role: "editor" }, ctx);
+  applyNotebookUpdate({ type: "member-left", who: "~bus" }, ctx);
+  eq(ctx.calls.loadNotebooks, 0);
+  eq(ctx.calls.applyInboxEvent.length, 0);
+});
+
+test("unknown type → silent no-op (forward compat)", () => {
+  const ctx = makeCtx();
+  applyNotebookUpdate({ type: "future-event" }, ctx);
+  eq(ctx.calls.loadNotebooks, 0);
+});
+
+test("missing/null update is defensive", () => {
+  const ctx = makeCtx();
+  applyNotebookUpdate(null, ctx);
+  applyNotebookUpdate({}, ctx);
+  eq(ctx.calls.loadNotebooks, 0);
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tests: notebooks map keying by flag (not id)
+// ─────────────────────────────────────────────────────────────────────────
+suite("notebooks map — keyed by flag (not local id)");
+
+test("two notebooks from different hosts with the same id don't collide", () => {
+  // REGRESSION: keying by nb.id (host-local) collapsed entries when ~zod
+  // and ~bus each had a notebook with id=2.
+  const notebooks = {};
+  const a = { id: 2, flag: "~zod/notes",     host: "~zod", flagName: "notes",     title: "Zod's" };
+  const b = { id: 2, flag: "~bus/journal",   host: "~bus", flagName: "journal",   title: "Bus's" };
+  notebooks[a.flag] = a;
+  notebooks[b.flag] = b;
+  eq(Object.keys(notebooks).length, 2);
+  eq(notebooks["~zod/notes"].title, "Zod's");
+  eq(notebooks["~bus/journal"].title, "Bus's");
+});
+
+test("a notebook can be retrieved by its flag", () => {
+  const notebooks = { "~zod/foo": { id: 1, flag: "~zod/foo", title: "T" } };
+  const nb = notebooks["~zod/foo"];
+  eq(nb && nb.title, "T");
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tests: route building + parsing
+// ─────────────────────────────────────────────────────────────────────────
+suite("route building (buildRoutePure)");
+
+test("no active notebook → /notes/", () => {
+  eq(buildRoutePure({ activeNotebookFlag: null, notebooks: {} }), "/notes/");
+});
+
+test("active notebook only → /notes/nb/<host>/<flagName>", () => {
+  const notebooks = { "~zod/foo": { host: "~zod", flagName: "foo" } };
+  eq(buildRoutePure({
+    activeNotebookFlag: "~zod/foo",
+    notebooks,
+    activeFolderId: null,
+    activeNoteId: null,
+    rootFolderId: null
+  }), "/notes/nb/~zod/foo");
+});
+
+test("active folder (non-root) → /notes/nb/.../f/<id>", () => {
+  const notebooks = { "~zod/foo": { host: "~zod", flagName: "foo" } };
+  eq(buildRoutePure({
+    activeNotebookFlag: "~zod/foo",
+    notebooks,
+    activeFolderId: 5,
+    activeNoteId: null,
+    rootFolderId: 2
+  }), "/notes/nb/~zod/foo/f/5");
+});
+
+test("active folder == root folder → folder segment omitted", () => {
+  const notebooks = { "~zod/foo": { host: "~zod", flagName: "foo" } };
+  eq(buildRoutePure({
+    activeNotebookFlag: "~zod/foo",
+    notebooks,
+    activeFolderId: 2,
+    activeNoteId: null,
+    rootFolderId: 2
+  }), "/notes/nb/~zod/foo");
+});
+
+test("active note → /notes/nb/.../n/<id>", () => {
+  const notebooks = { "~zod/foo": { host: "~zod", flagName: "foo" } };
+  eq(buildRoutePure({
+    activeNotebookFlag: "~zod/foo",
+    notebooks,
+    activeFolderId: 2,
+    activeNoteId: 9,
+    rootFolderId: 2
+  }), "/notes/nb/~zod/foo/n/9");
+});
+
+test("flagName with special chars is encoded", () => {
+  const notebooks = { "~zod/my notes": { host: "~zod", flagName: "my notes" } };
+  eq(buildRoutePure({
+    activeNotebookFlag: "~zod/my notes",
+    notebooks,
+  }), "/notes/nb/~zod/my%20notes");
+});
+
+suite("route parsing (applyRouteParse)");
+
+test("parses bare notebook URL", () => {
+  const r = applyRouteParse("/notes/nb/~zod/foo");
+  deepEq(r, { host: "~zod", flagName: "foo", folderId: null, noteId: null, flag: "~zod/foo" });
+});
+
+test("parses folder URL", () => {
+  const r = applyRouteParse("/notes/nb/~zod/foo/f/5");
+  eq(r.folderId, 5);
+  eq(r.noteId, null);
+});
+
+test("parses note URL", () => {
+  const r = applyRouteParse("/notes/nb/~zod/foo/n/9");
+  eq(r.noteId, 9);
+});
+
+test("parses folder + note URL", () => {
+  const r = applyRouteParse("/notes/nb/~zod/foo/f/5/n/9");
+  eq(r.folderId, 5);
+  eq(r.noteId, 9);
+});
+
+test("trailing slash tolerated", () => {
+  const r = applyRouteParse("/notes/nb/~zod/foo/");
+  eq(r && r.flag, "~zod/foo");
+});
+
+test("non-matching URL returns null", () => {
+  eq(applyRouteParse("/foo/bar"), null);
+  eq(applyRouteParse("/notes/"), null);
+});
+
+test("decodes URL-encoded flag names", () => {
+  const r = applyRouteParse("/notes/nb/~zod/my%20notes");
+  eq(r.flagName, "my notes");
+  eq(r.flag, "~zod/my notes");
 });
 
 // ─────────────────────────────────────────────────────────────────────────

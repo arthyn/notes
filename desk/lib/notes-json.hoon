@@ -21,6 +21,7 @@
         ['createdBy' s+(scot %p created-by.nb)]
         ['createdAt' (numb (da-to-unix created-at.nb))]
         ['updatedAt' (numb (da-to-unix updated-at.nb))]
+        ['updatedBy' s+(scot %p updated-by.nb)]
     ==
   ::
   ++  folder
@@ -34,6 +35,7 @@
         ['createdBy' s+(scot %p created-by.fld)]
         ['createdAt' (numb (da-to-unix created-at.fld))]
         ['updatedAt' (numb (da-to-unix updated-at.fld))]
+        ['updatedBy' s+(scot %p updated-by.fld)]
     ==
   ::
   ++  note
@@ -53,7 +55,7 @@
         ['revision' (numb revision.nt)]
     ==
   ::
-  ::  note-revision: archived prior version of a note
+  ::  +note-revision: archived prior version of a note
   ++  note-revision
     |=  nr=note-revision:notes
     ^-  json
@@ -65,142 +67,159 @@
         ['bodyMd' s+body-md.nr]
     ==
   ::
-  ++  event
-    |=  evt=event:notes
+  ::  +u-folder: encode a folder-scoped update
+  ++  u-folder
+    |=  [id=@ud upd=u-folder:notes]
     ^-  json
-    %-  pairs
-    ?-  -.evt
-        %notebook-created
-      :~  ['type' s+'notebook-created']
-          ['notebookId' (numb id.notebook.evt)]
-          ['notebook' (notebook notebook.evt)]
-          ['actor' s+(scot %p actor.evt)]
-      ==
-        %notebook-renamed
-      :~  ['type' s+'notebook-renamed']
-          ['notebookId' (numb notebook-id.evt)]
-          ['title' s+title.evt]
-          ['actor' s+(scot %p actor.evt)]
-      ==
-        %notebook-deleted
-      :~  ['type' s+'notebook-deleted']
-          ['notebookId' (numb notebook-id.evt)]
-          ['actor' s+(scot %p actor.evt)]
-      ==
-        %notebook-visibility-changed
-      :~  ['type' s+'notebook-visibility-changed']
-          ['notebookId' (numb notebook-id.evt)]
-          ['visibility' s+(scot %tas visibility.evt)]
-          ['actor' s+(scot %p actor.evt)]
-      ==
-        %member-joined
-      :~  ['type' s+'member-joined']
-          ['notebookId' (numb notebook-id.evt)]
-          ['who' s+(scot %p who.evt)]
-          ['actor' s+(scot %p actor.evt)]
-      ==
-        %member-left
-      :~  ['type' s+'member-left']
-          ['notebookId' (numb notebook-id.evt)]
-          ['who' s+(scot %p who.evt)]
-          ['actor' s+(scot %p actor.evt)]
-      ==
-        %folder-created
+    ?-  -.upd
+        %created
+      %-  pairs
       :~  ['type' s+'folder-created']
-          ['folderId' (numb id.folder.evt)]
-          ['notebookId' (numb notebook-id.folder.evt)]
-          ['folder' (folder folder.evt)]
-          ['actor' s+(scot %p actor.evt)]
+          ['id' (numb id)]
+          ['folder' (folder folder.upd)]
       ==
-        %folder-renamed
-      :~  ['type' s+'folder-renamed']
-          ['folderId' (numb folder-id.evt)]
-          ['notebookId' (numb notebook-id.evt)]
-          ['name' s+name.evt]
-          ['actor' s+(scot %p actor.evt)]
+        %updated
+      %-  pairs
+      :~  ['type' s+'folder-updated']
+          ['id' (numb id)]
+          ['folder' (folder folder.upd)]
       ==
-        %folder-moved
-      :~  ['type' s+'folder-moved']
-          ['folderId' (numb folder-id.evt)]
-          ['notebookId' (numb notebook-id.evt)]
-          ['newParentFolderId' (numb new-parent-folder-id.evt)]
-          ['actor' s+(scot %p actor.evt)]
-      ==
-        %folder-deleted
+        %deleted
+      %-  pairs
       :~  ['type' s+'folder-deleted']
-          ['folderId' (numb folder-id.evt)]
-          ['notebookId' (numb notebook-id.evt)]
-          ['actor' s+(scot %p actor.evt)]
-      ==
-        %note-created
-      :~  ['type' s+'note-created']
-          ['noteId' (numb id.note.evt)]
-          ['notebookId' (numb notebook-id.note.evt)]
-          ['note' (note note.evt)]
-          ['actor' s+(scot %p actor.evt)]
-      ==
-        %note-renamed
-      :~  ['type' s+'note-renamed']
-          ['noteId' (numb note-id.evt)]
-          ['notebookId' (numb notebook-id.evt)]
-          ['title' s+title.evt]
-          ['actor' s+(scot %p actor.evt)]
-      ==
-        %note-moved
-      :~  ['type' s+'note-moved']
-          ['noteId' (numb note-id.evt)]
-          ['notebookId' (numb notebook-id.evt)]
-          ['folderId' (numb folder-id.evt)]
-          ['actor' s+(scot %p actor.evt)]
-      ==
-        %note-deleted
-      :~  ['type' s+'note-deleted']
-          ['noteId' (numb note-id.evt)]
-          ['notebookId' (numb notebook-id.evt)]
-          ['actor' s+(scot %p actor.evt)]
-      ==
-        %note-updated
-      :~  ['type' s+'note-updated']
-          ['noteId' (numb id.note.evt)]
-          ['notebookId' (numb notebook-id.note.evt)]
-          ['revision' (numb revision.note.evt)]
-          ['note' (note note.evt)]
-          ['actor' s+(scot %p actor.evt)]
-      ==
-        %note-revision-archived
-      :~  ['type' s+'note-revision-archived']
-          ['noteId' (numb note-id.evt)]
-          ['revision' (note-revision note-revision.evt)]
-          ['actor' s+(scot %p actor.evt)]
-      ==
-        %invite-received
-      :~  ['type' s+'invite-received']
-          ['host' s+(scot %p ship.flag.evt)]
-          ['flagName' s+name.flag.evt]
-          ['from' s+(scot %p from.evt)]
-          ['sentAt' (numb (da-to-unix sent-at.evt))]
-      ==
-        %invite-removed
-      :~  ['type' s+'invite-removed']
-          ['host' s+(scot %p ship.flag.evt)]
-          ['flagName' s+name.flag.evt]
+          ['id' (numb id)]
       ==
     ==
   ::
+  ::  +u-note: encode a note-scoped update
+  ++  u-note
+    |=  [id=@ud upd=u-note:notes]
+    ^-  json
+    ?-  -.upd
+        %created
+      %-  pairs
+      :~  ['type' s+'note-created']
+          ['id' (numb id)]
+          ['note' (note note.upd)]
+      ==
+        %updated
+      %-  pairs
+      :~  ['type' s+'note-updated']
+          ['id' (numb id)]
+          ['note' (note note.upd)]
+      ==
+        %deleted
+      %-  pairs
+      :~  ['type' s+'note-deleted']
+          ['id' (numb id)]
+      ==
+        %published
+      %-  pairs
+      :~  ['type' s+'note-published']
+          ['id' (numb id)]
+          ['html' s+html.upd]
+      ==
+        %unpublished
+      %-  pairs
+      :~  ['type' s+'note-unpublished']
+          ['id' (numb id)]
+      ==
+        %history-archived
+      %-  pairs
+      :~  ['type' s+'note-history-archived']
+          ['id' (numb id)]
+          ['revision' (note-revision note-revision.upd)]
+      ==
+    ==
+  ::
+  ::  +u-notebook: encode a notebook-scoped update
+  ++  u-notebook
+    |=  [=flag:notes upd=u-notebook:notes]
+    ^-  json
+    %-  pairs
+    ?-  -.upd
+        %created
+      :~  ['type' s+'notebook-created']
+          ['host' s+(scot %p ship.flag)]
+          ['flagName' s+name.flag]
+          ['notebook' (notebook notebook.upd)]
+          ['visibility' s+(scot %tas visibility.upd)]
+      ==
+        %updated
+      :~  ['type' s+'notebook-updated']
+          ['host' s+(scot %p ship.flag)]
+          ['flagName' s+name.flag]
+          ['notebook' (notebook notebook.upd)]
+      ==
+        %deleted
+      :~  ['type' s+'notebook-deleted']
+          ['host' s+(scot %p ship.flag)]
+          ['flagName' s+name.flag]
+      ==
+        %visibility
+      :~  ['type' s+'notebook-visibility-changed']
+          ['host' s+(scot %p ship.flag)]
+          ['flagName' s+name.flag]
+          ['visibility' s+(scot %tas visibility.upd)]
+      ==
+        %member-joined
+      :~  ['type' s+'member-joined']
+          ['host' s+(scot %p ship.flag)]
+          ['flagName' s+name.flag]
+          ['who' s+(scot %p who.upd)]
+          ['role' s+(scot %tas role.upd)]
+      ==
+        %member-left
+      :~  ['type' s+'member-left']
+          ['host' s+(scot %p ship.flag)]
+          ['flagName' s+name.flag]
+          ['who' s+(scot %p who.upd)]
+      ==
+        %invite-received
+      :~  ['type' s+'invite-received']
+          ['host' s+(scot %p ship.flag)]
+          ['flagName' s+name.flag]
+          ['from' s+(scot %p from.upd)]
+          ['title' s+title.upd]
+      ==
+        %invite-removed
+      :~  ['type' s+'invite-removed']
+          ['host' s+(scot %p ship.flag)]
+          ['flagName' s+name.flag]
+      ==
+        %folder
+      :~  ['type' s+'folder-update']
+          ['host' s+(scot %p ship.flag)]
+          ['flagName' s+name.flag]
+          ['folderUpdate' (u-folder id.upd u-folder.upd)]
+      ==
+        %note
+      :~  ['type' s+'note-update']
+          ['host' s+(scot %p ship.flag)]
+          ['flagName' s+name.flag]
+          ['noteUpdate' (u-note id.upd u-note.upd)]
+      ==
+    ==
+  ::
+  ::  +response: encode r-notes response
   ++  response
     |=  res=response:notes
     ^-  json
     ?-  -.res
         %update
       %-  pairs
-      :~  ['response' s+'update']
-          ['update' (event u-notes.res)]
+      :~  ['type' s+'update']
+          ['host' s+(scot %p ship.flag.res)]
+          ['flagName' s+name.flag.res]
+          ['time' (numb (da-to-unix time.update.res))]
+          ['update' (u-notebook flag.res u-notebook.update.res)]
       ==
         %snapshot
       %-  pairs
-      :~  ['response' s+'snapshot']
+      :~  ['type' s+'snapshot']
           ['host' s+(scot %p ship.flag.res)]
           ['flagName' s+name.flag.res]
+          ['visibility' s+(scot %tas visibility.res)]
       ==
     ==
   --
@@ -209,158 +228,136 @@
 ++  dejs
   =,  dejs:format
   |%
-  ::  +role: parse role string
-  ++  role
+  ::  +get-type: extract "type" string from a JSON object
+  ++  get-type
     |=  jon=json
-    ^-  role:notes
-    ?>  ?=([%s *] jon)
-    ?+  p.jon  ~|(%bad-role !!)
-      %'owner'   %owner
-      %'editor'  %editor
-      %'viewer'  %viewer
-    ==
-  ::  +routed-action: parse action with optional _flag for routing
-  ::  format: {"_flag": "~ship/name", "action-name": {fields...}}
-  ++  routed-action
-    |=  jon=json
-    ^-  routed-action:notes
+    ^-  @t
     ?>  ?=([%o *] jon)
-    =/  flag-json=(unit json)  (~(get by p.jon) '_flag')
-    =/  target=(unit flag:notes)
-      ?~  flag-json  ~
-      ?.  ?=([%s *] u.flag-json)  ~
-      =/  raw=tape  (trip p.u.flag-json)
-      =/  idx  (find "/" raw)
-      ?~  idx  ~
-      =/  ship-text=@t  (crip (scag u.idx raw))
-      =/  name-text=@t  (crip (slag +(u.idx) raw))
-      `[(slav %p ship-text) name-text]
-    ::  remove _flag before parsing the action
-    =/  clean=json  [%o (~(del by p.jon) '_flag')]
-    [target (action clean)]
+    =/  typ=(unit json)  (~(get by p.jon) 'type')
+    ?>  ?=(^ typ)
+    ?>  ?=([%s *] u.typ)
+    p.u.typ
   ::
-  ::  +action: parse action from JSON
-  ::  format: {"action-name": {fields...}}
+  ::  +a-folder: parse a-folder action object {type, ...fields}
+  ++  a-folder
+    |=  jon=json
+    ^-  a-folder:notes
+    ?>  ?=([%o *] jon)
+    =/  tag=@t  (get-type jon)
+    ?+  tag  ~|(unknown-a-folder+tag !!)
+        %'rename'
+      [%rename ((ot ~[['name' so]]) jon)]
+        %'move'
+      [%move ((ot ~[['newParent' ni]]) jon)]
+        %'delete'
+      [%delete ((ot ~[['recursive' bo]]) jon)]
+    ==
+  ::
+  ::  +a-note: parse a-note action object {type, ...fields}
+  ++  a-note
+    |=  jon=json
+    ^-  a-note:notes
+    ?>  ?=([%o *] jon)
+    =/  tag=@t  (get-type jon)
+    ?+  tag  ~|(unknown-a-note+tag !!)
+        %'rename'
+      [%rename ((ot ~[['title' so]]) jon)]
+        %'move'
+      [%move ((ot ~[['folder' ni]]) jon)]
+        %'delete'
+      [%delete ~]
+        %'update'
+      :-  %update
+      ((ot ~[['body' so] ['expectedRevision' ni]]) jon)
+        %'publish'
+      [%publish ((ot ~[['html' so]]) jon)]
+        %'unpublish'
+      [%unpublish ~]
+        %'restore'
+      [%restore ((ot ~[['rev' ni]]) jon)]
+    ==
+  ::
+  ::  +a-notebook: parse a-notebook action object {type, ...fields}
+  ++  a-notebook
+    |=  jon=json
+    ^-  a-notebook:notes
+    ?>  ?=([%o *] jon)
+    =/  tag=@t  (get-type jon)
+    ?+  tag  ~|(unknown-a-notebook+tag !!)
+        %'rename'
+      [%rename ((ot ~[['title' so]]) jon)]
+        %'delete'
+      [%delete ~]
+        %'visibility'
+      =/  raw=@t  ((ot ~[['visibility' so]]) jon)
+      ?.  ?|(=('public' raw) =('private' raw))
+        ~|(bad-visibility+raw !!)
+      [%visibility ?:(=('public' raw) %public %private)]
+        %'invite'
+      [%invite ((ot ~[['who' (su ;~(pfix sig fed:ag))]]) jon)]
+        %'create-folder'
+      :-  %create-folder
+      ((ot ~[['parent' (mu ni)] ['name' so]]) jon)
+        %'folder'
+      :-  %folder
+      ((ot ~[['id' ni] ['action' a-folder]]) jon)
+        %'create-note'
+      :-  %create-note
+      ((ot ~[['folder' ni] ['title' so] ['body' so]]) jon)
+        %'note'
+      :-  %note
+      ((ot ~[['id' ni] ['action' a-note]]) jon)
+        %'batch-import'
+      :-  %batch-import
+      ((ot ~[['folder' ni] ['notes' (ar (ot ~[['title' so] ['body' so]]))]]) jon)
+        %'batch-import-tree'
+      :-  %batch-import-tree
+      ((ot ~[['parent' ni] ['tree' (ar import-node)]]) jon)
+    ==
+  ::
+  ::  +action: parse top-level a-notes from JSON
+  ::  format: {"type": "...", ...fields}
   ++  action
     |=  jon=json
     ^-  action:notes
     ?>  ?=([%o *] jon)
-    =/  entries=(list [key=@t val=json])  ~(tap by p.jon)
-    ?>  ?=(^ entries)
-    =/  tag=@t  key.i.entries
-    =/  val=json  val.i.entries
+    =/  tag=@t  (get-type jon)
     ?+  tag  ~|(unknown-action+tag !!)
-    ::
         %'create-notebook'
-      [%create-notebook (so val)]
-    ::
-        %'rename-notebook'
-      :-  %rename-notebook
-      ((ot ~[['notebookId' ni] ['title' so]]) val)
-    ::
-        %'delete-notebook'
-      :-  %delete-notebook
-      ((ot ~[['notebookId' ni]]) val)
-    ::
-        %'set-visibility'
-      =/  raw=[nid=@ud vis=@t]
-        ((ot ~[['notebookId' ni] ['visibility' so]]) val)
-      ?.  ?|(=('public' vis.raw) =('private' vis.raw))
-        ~|(bad-visibility+vis.raw !!)
-      :-  %set-visibility
-      [nid.raw ?:(=('public' vis.raw) %public %private)]
-    ::
-        %'invite'
-      :-  %invite
-      ((ot ~[['notebookId' ni] ['ship' (su ;~(pfix sig fed:ag))]]) val)
-    ::
-        %'send-invite'
-      :-  %send-invite
-      ((ot ~[['notebookId' ni] ['ship' (su ;~(pfix sig fed:ag))]]) val)
-    ::
-        %'accept-invite'
-      :-  %accept-invite
-      =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) val)
-      [-.raw +.raw]
-    ::
-        %'decline-invite'
-      :-  %decline-invite
-      =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) val)
-      [-.raw +.raw]
-    ::
+      =/  title=(unit json)  (~(get by p.jon) 'title')
+      ?>  ?=(^ title)
+      [%create-notebook (so u.title)]
         %'join'
       :-  %join
-      ((ot ~[['notebookId' ni]]) val)
-    ::
+      =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) jon)
+      [-.raw `@tas`+.raw]
         %'leave'
       :-  %leave
-      ((ot ~[['notebookId' ni]]) val)
-    ::
-        %'create-folder'
-      :-  %create-folder
-      ((ot ~[['notebookId' ni] ['parentFolderId' (mu ni)] ['name' so]]) val)
-    ::
-        %'rename-folder'
-      :-  %rename-folder
-      ((ot ~[['notebookId' ni] ['folderId' ni] ['name' so]]) val)
-    ::
-        %'move-folder'
-      :-  %move-folder
-      ((ot ~[['notebookId' ni] ['folderId' ni] ['newParentFolderId' ni]]) val)
-    ::
-        %'delete-folder'
-      :-  %delete-folder
-      ((ot ~[['notebookId' ni] ['folderId' ni] ['recursive' bo]]) val)
-    ::
-        %'create-note'
-      :-  %create-note
-      ((ot ~[['notebookId' ni] ['folderId' ni] ['title' so] ['bodyMd' so]]) val)
-    ::
-        %'rename-note'
-      :-  %rename-note
-      ((ot ~[['notebookId' ni] ['noteId' ni] ['title' so]]) val)
-    ::
-        %'move-note'
-      :-  %move-note
-      ((ot ~[['noteId' ni] ['notebookId' ni] ['folderId' ni]]) val)
-    ::
-        %'delete-note'
-      :-  %delete-note
-      ((ot ~[['noteId' ni] ['notebookId' ni]]) val)
-    ::
-        %'update-note'
-      :-  %update-note
-      ((ot ~[['notebookId' ni] ['noteId' ni] ['bodyMd' so] ['expectedRevision' ni]]) val)
-    ::
-        %'batch-import'
-      :-  %batch-import
-      =+  ^=  raw
-        %.  val
-        (ot ~[['notebookId' ni] ['folderId' ni] ['notes' (ar (ot ~[['title' so] ['bodyMd' so]]))]])
-      raw
-    ::
-        %'batch-import-tree'
-      :-  %batch-import-tree
-      %.  val
-      (ot ~[['notebookId' ni] ['parentFolderId' ni] ['tree' (ar import-node)]])
-    ::
-        %'join-remote'
-      :-  %join-remote
-      =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) val)
-      [-.raw +.raw]
-    ::
-        %'leave-remote'
-      :-  %leave-remote
-      =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) val)
-      [-.raw +.raw]
-    ::
-        %'publish-note'
-      :-  %publish-note
-      ((ot ~[['notebookId' ni] ['noteId' ni] ['html' so]]) val)
-    ::
-        %'unpublish-note'
-      :-  %unpublish-note
-      ((ot ~[['notebookId' ni] ['noteId' ni]]) val)
+      =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) jon)
+      [-.raw `@tas`+.raw]
+        %'accept-invite'
+      :-  %accept-invite
+      =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) jon)
+      [-.raw `@tas`+.raw]
+        %'decline-invite'
+      :-  %decline-invite
+      =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) jon)
+      [-.raw `@tas`+.raw]
+        %'notebook'
+      :-  %notebook
+      =/  flag-json=(unit json)  (~(get by p.jon) 'flag')
+      =/  act-json=(unit json)   (~(get by p.jon) 'action')
+      ?>  ?=(^ flag-json)
+      ?>  ?=(^ act-json)
+      =/  =flag:notes
+        ?>  ?=([%s *] u.flag-json)
+        =/  raw-tape=tape  (trip p.u.flag-json)
+        =/  idx  (find "/" raw-tape)
+        ?>  ?=(^ idx)
+        =/  ship-text=@t  (crip (scag u.idx raw-tape))
+        =/  name-text=@tas  `@tas`(crip (slag +(u.idx) raw-tape))
+        [(slav %p ship-text) name-text]
+      [flag (a-notebook u.act-json)]
     ==
   ::
   ++  import-node
@@ -371,6 +368,6 @@
       :-  %folder
       ((ot ~[['name' so] ['children' (ar import-node)]]) jon)
     :-  %note
-    ((ot ~[['title' so] ['bodyMd' so]]) jon)
+    ((ot ~[['title' so] ['body' so]]) jon)
   --
 --

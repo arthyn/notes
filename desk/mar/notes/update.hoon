@@ -1,5 +1,4 @@
 /-  notes
-/+  notes-json
 |_  =update:notes
 ++  grad  %noun
 ++  grab
@@ -9,6 +8,5 @@
 ++  grow
   |%
   ++  noun  update
-  ++  json  (update:enjs:notes-json update)
   --
 --

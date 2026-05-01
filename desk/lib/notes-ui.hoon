@@ -1723,8 +1723,8 @@ let notes = {};       // id -> note (for the active notebook)
 // Per-notebook caches — lets us render immediately on notebook switch even
 // when the fresh scry fails (offline/reconnecting). Populated on successful
 // load and on switcher-index builds.
-let foldersByNb = {}; // notebookId -> { folderId -> folder }
-let notesByNb = {};   // notebookId -> { noteId -> note }
+let foldersByNb = {}; // notebookFlag -> { folderId -> folder }
+let notesByNb = {};   // notebookFlag -> { noteId -> note }
 let publishedIds = new Set();  // set of published note IDs
 let pendingInvites = {};       // "~host/name" -> { from, sentAt }
 
@@ -1792,10 +1792,15 @@ async function connect() {
   setConnectionState("connected");
 
   openChannel();
+
   // loadNotebooks, loadPublished, loadInvites are independent scries — fire
   // them in parallel to shave roundtrips off the bootstrap.
   await Promise.all([loadNotebooks(), loadPublished(), loadInvites()]);
-  subscribeInbox();
+  // Await subscribeInbox so the SSE listener (started inside it after the
+  // first PUT brings the channel into existence) is live before the user
+  // can issue any pokeAction. Otherwise pokeAction's await for poke-ack
+  // hangs until the 15s timeout.
+  await subscribeInbox();
   // Embed mode pins the UI to a specific notebook from the URL; this takes
   // precedence over both the route and any restored localStorage selection.
   const embedApplied = await applyEmbedNotebook();
@@ -1815,7 +1820,7 @@ async function connect() {
 
 function saveSelection() {
   localStorage.setItem('notes-selection', JSON.stringify({
-    notebookId: activeNotebookId,
+    notebookFlag: activeNotebookFlag,
     folderId: activeFolderId,
     noteId: activeNoteId,
   }));
@@ -1824,8 +1829,8 @@ function saveSelection() {
 async function restoreSelection() {
   try {
     const saved = JSON.parse(localStorage.getItem('notes-selection') || '{}');
-    if (saved.notebookId && notebooks[saved.notebookId]) {
-      await selectNotebook(saved.notebookId);
+    if (saved.notebookFlag && notebooks[saved.notebookFlag]) {
+      await selectNotebook(saved.notebookFlag);
       if (saved.folderId && folders[saved.folderId]) {
         activeFolderId = saved.folderId;
         renderItems();
@@ -1842,8 +1847,8 @@ async function restoreSelection() {
 let applyingRoute = false;
 
 function buildRoute() {
-  if (!activeNotebookId) return "/notes/";
-  const nb = notebooks[activeNotebookId];
+  if (!activeNotebookFlag) return "/notes/";
+  const nb = notebooks[activeNotebookFlag];
   if (!nb) return "/notes/";
   let path = `/notes/nb/${nb.host}/${encodeURIComponent(nb.flagName)}`;
   const rootId = rootFolderId();
@@ -1880,13 +1885,13 @@ async function applyRoute() {
 
   applyingRoute = true;
   try {
-    if (activeNotebookId !== nb.id) await selectNotebook(nb.id);
+    if (activeNotebookFlag !== nb.flag) await selectNotebook(nb.flag);
     // selectNotebook fires loadFolders/loadNotes WITHOUT awaiting (so
     // ordinary navigation paints from cache instantly). On a cold refresh
     // into a deep link there's no cache, so the folders[]/notes[] lookups
     // below would fall through to root and skip selectNote. Wait for the
     // fresh data before making routing decisions.
-    await Promise.all([loadFolders(nb.id), loadNotes(nb.id)]);
+    await Promise.all([loadFolders(), loadNotes()]);
     // Folder: URL value or implicit root
     const targetFolder = fid && folders[fid] ? fid : rootFolderId();
     if (targetFolder && activeFolderId !== targetFolder) {
@@ -1929,7 +1934,7 @@ async function applyEmbedNotebook() {
   if (!nb) return false;
   applyingRoute = true;
   try {
-    if (activeNotebookId !== nb.id) await selectNotebook(nb.id);
+    if (activeNotebookFlag !== nb.flag) await selectNotebook(nb.flag);
     if (isMobile()) mobileSetView("notes");
   } finally {
     applyingRoute = false;
@@ -1975,7 +1980,7 @@ async function joinRemoteAndWait(flag) {
   const ship = parts[0].startsWith("~") ? parts[0] : "~" + parts[0];
   const name = parts.slice(1).join("/");
   try {
-    await pokeAction({ "join-remote": { ship, name } });
+    await pokeTopLevel({ type: "join", ship, name });
   } catch (e) {
     return null;
   }
@@ -2075,16 +2080,22 @@ async function poke(actions) {
   }
 }
 
-// pokeAction now waits for the agent's actual poke-ack (delivered via the
-// SSE channel) — not just the eyre PUT. Throws on server-side rejection
-// or on a 15s timeout, so callers (notably autoSave) can react to real
-// save failures instead of silently marking dirty work as saved.
+// ── Nested ACUR poke helpers ──────────────────────────────────────────────
+// pokeAction is the underlying primitive; it threads the action through
+// poke-ack tracking (so callers like autoSave see real server failures
+// instead of silent eyre-PUT-only success). The nested helpers build the
+// ACUR envelope on top: top-level verbs go through pokeTopLevel as-is;
+// notebook-scoped go via { type: "notebook", flag, action: inner }; folder
+// and note actions wrap a 3rd nesting level.
+//
+// Usage:
+//   pokeTopLevel({ type: "create-notebook", title })
+//   pokeNotebook({ type: "rename", title })
+//   pokeFolderAction(folderId, { type: "rename", name })
+//   pokeNoteAction(noteId, { type: "update", body, expectedRevision })
+
 async function pokeAction(action) {
   const id = msgId++;
-  // Include _flag for unambiguous notebook routing across ships
-  if (activeNotebookFlag) {
-    action._flag = activeNotebookFlag;
-  }
   const ack = new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingPokes.delete(id);
@@ -2109,6 +2120,23 @@ async function pokeAction(action) {
   await ack;
 }
 
+async function pokeTopLevel(action) {
+  return pokeAction(action);
+}
+
+async function pokeNotebook(nbAction) {
+  if (!activeNotebookFlag) return;
+  return pokeAction({ type: "notebook", flag: activeNotebookFlag, action: nbAction });
+}
+
+async function pokeFolderAction(folderId, folderAction) {
+  return pokeNotebook({ type: "folder", id: folderId, action: folderAction });
+}
+
+async function pokeNoteAction(noteId, noteAction) {
+  return pokeNotebook({ type: "note", id: noteId, action: noteAction });
+}
+
 async function scry(path) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 6000);
@@ -2128,31 +2156,100 @@ async function scry(path) {
 }
 
 // ── Event Handling ────────────────────────────────────────────────────────
+// Handles both the new nested r-notes shape and the /v0/inbox/stream events.
+//
+// r-notes shapes (from /stream subscription):
+//   %snapshot → { type: "snapshot", host, flagName, visibility }
+//   %update   → { type: "update", host, flagName, time, update: u-notebook-json }
+//
+// u-notebook-json types:
+//   notebook-created, notebook-updated, notebook-deleted,
+//   notebook-visibility-changed, member-joined, member-left,
+//   invite-received, invite-removed,
+//   folder-update → { type: "folder-update", folderUpdate: { type: "folder-{created|updated|deleted}", ... } }
+//   note-update   → { type: "note-update",   noteUpdate:   { type: "note-{created|updated|deleted|published|unpublished|history-archived}", ... } }
+
+function applyNotebookUpdate(u) {
+  const type = u.type;
+  if (!type) return;
+  if (type === "notebook-created" || type === "notebook-updated" || type === "notebook-visibility-changed") {
+    loadNotebooks();
+  } else if (type === "notebook-deleted") {
+    // notebookId is now not directly in the update; reload sidebar
+    loadNotebooks();
+  } else if (type === "member-joined" || type === "member-left") {
+    // membership changed — nothing to reload in UI unless we have a members panel open
+  } else if (type === "invite-received" || type === "invite-removed" || type === "notebooks-changed") {
+    applyInboxEvent(u);
+  } else if (type === "folder-update") {
+    applyFolderUpdate(u.folderUpdate);
+  } else if (type === "note-update") {
+    applyNoteUpdate(u.noteUpdate);
+  }
+}
+
+function applyFolderUpdate(fu) {
+  if (!fu) return;
+  loadFolders();
+}
+
+function applyNoteUpdate(nu) {
+  if (!nu) return;
+  const type = nu.type;
+  if (type === "note-history-archived") {
+    // nu.revision is the archived note-revision object (from u-note %history-archived)
+    if (nu.revision) applyArchivedRevision({ revision: nu.revision, noteId: nu.id });
+    return;
+  }
+  loadNotes();
+  if (type === "note-updated" && nu.id === activeNoteId) {
+    const noteData = nu.note;
+    if (noteData && !isOwnSaveEcho({ updatedBy: noteData.updatedBy, revision: noteData.revision })) {
+      if (dirty) showConflictBanner("Remote changes detected while you were editing.");
+      else loadNote(activeNoteId);
+    }
+  }
+}
+
 function handleEvent(msg) {
   if (!msg.json) return;
   const data = msg.json;
 
-  // Handle response envelope from /stream subscription
+  // New nested r-notes envelope
+  if (data.type === "snapshot") {
+    loadNotebooks();
+    return;
+  }
+  if (data.type === "update") {
+    const u = data.update;
+    applyNotebookUpdate(u);
+    return;
+  }
+
+  // Inbox events arrive with their own type directly (not wrapped in r-notes)
+  if (data.type === "invite-received" || data.type === "invite-removed" || data.type === "notebooks-changed") {
+    applyInboxEvent(data);
+    return;
+  }
+
+  // Legacy response envelope fallback (old r-notes shape)
   if (data.response === "snapshot") {
-    // Full reload on snapshot
     loadNotebooks();
     return;
   }
   if (data.response === "update") {
     const evt = data.update;
-    const type = evt.type;
-    // Inbox events (received on /v0/inbox/stream) — route to handler.
+    const type = evt?.type;
     if (type === "invite-received" || type === "invite-removed" || type === "notebooks-changed") {
       applyInboxEvent(evt);
       return;
     }
-    // Reload relevant data on events
     if (type === "notebook-created" || type === "notebook-renamed" || type === "notebook-visibility-changed") loadNotebooks();
-    else if (type === "notebook-deleted") handleNotebookDeleted(evt.notebookId);
-    else if (type?.startsWith("folder-")) loadFolders(activeNotebookId);
+    else if (type === "notebook-deleted") loadNotebooks();
+    else if (type?.startsWith("folder-")) loadFolders();
     else if (type === "note-revision-archived") applyArchivedRevision(evt);
     else if (type?.startsWith("note-")) {
-      loadNotes(activeNotebookId);
+      loadNotes();
       if (type === "note-updated" && evt.noteId === activeNoteId && !isOwnSaveEcho(evt)) {
         if (dirty) showConflictBanner("Remote changes detected while you were editing.");
         else loadNote(activeNoteId);
@@ -2161,14 +2258,14 @@ function handleEvent(msg) {
     return;
   }
 
-  // Fallback: try handling as a raw event (backwards compat)
+  // Bare event fallback
   const type = data.type;
   if (type === "notebook-created" || type === "notebook-renamed" || type === "notebook-visibility-changed") loadNotebooks();
-  else if (type === "notebook-deleted") handleNotebookDeleted(data.notebookId);
-  else if (type?.startsWith("folder-")) loadFolders(activeNotebookId);
+  else if (type === "notebook-deleted") loadNotebooks();
+  else if (type?.startsWith("folder-")) loadFolders();
   else if (type === "note-revision-archived") applyArchivedRevision(data);
   else if (type?.startsWith("note-")) {
-    loadNotes(activeNotebookId);
+    loadNotes();
     if (type === "note-updated" && data.noteId === activeNoteId && !isOwnSaveEcho(data)) {
       if (dirty) showConflictBanner("Remote changes detected while you were editing.");
       else loadNote(activeNoteId);
@@ -2225,6 +2322,11 @@ async function subscribeInbox() {
     ship: SHIP.replace("~", ""),
     app: "notes", path: "/v0/inbox/stream"
   }]);
+  // The PUT just brought the channel into existence server-side. Start
+  // the SSE listener now so subsequent pokeAction calls can receive
+  // their poke-acks (subscribeEvents on notebook-select can no-op the
+  // start since SSE is already live).
+  startSSE();
 }
 
 function applyInboxEvent(evt) {
@@ -2247,7 +2349,7 @@ async function acceptInvite(flag) {
   const parts = flag.split("/");
   const ship = parts[0].startsWith("~") ? parts[0] : "~" + parts[0];
   const name = parts.slice(1).join("/");
-  await pokeAction({ "accept-invite": { ship, name } });
+  await pokeTopLevel({ type: "accept-invite", ship, name });
   // The agent will emit a notebooks-changed fact on /v0/inbox/stream once
   // the host's snapshot lands, which triggers loadNotebooks. Belt-and-
   // suspenders: also fall back to a single delayed reload in case the SSE
@@ -2259,7 +2361,7 @@ async function declineInvite(flag) {
   const parts = flag.split("/");
   const ship = parts[0].startsWith("~") ? parts[0] : "~" + parts[0];
   const name = parts.slice(1).join("/");
-  await pokeAction({ "decline-invite": { ship, name } });
+  await pokeTopLevel({ type: "decline-invite", ship, name });
 }
 
 function renderInvites() {
@@ -2302,13 +2404,13 @@ async function loadNotebooks() {
     nb.flagName = entry.flagName;
     nb.flag = `${entry.host}/${entry.flagName}`;
     nb.visibility = entry.visibility || 'private';
-    notebooks[nb.id] = nb;
+    notebooks[nb.flag] = nb;
   });
   renderNotebooks();
   updateHeader();
 }
 
-async function loadFolders(notebookId) {
+async function loadFolders() {
   if (!activeNotebookFlag) return;
   const data = await scry(`/v0/folders/${activeNotebookFlag}`);
   // Only replace the cache when we got fresh data — otherwise preserve what
@@ -2316,7 +2418,7 @@ async function loadFolders(notebookId) {
   if (data) {
     folders = {};
     (data || []).forEach(f => folders[f.id] = f);
-    foldersByNb[notebookId] = { ...folders };
+    foldersByNb[activeNotebookFlag] = { ...folders };
   }
   if (!activeFolderId || !folders[activeFolderId]) {
     const rootFolder = Object.values(folders).find(f => f.name === "/");
@@ -2325,13 +2427,13 @@ async function loadFolders(notebookId) {
   renderItems();
 }
 
-async function loadNotes(notebookId) {
+async function loadNotes() {
   if (!activeNotebookFlag) return;
   const data = await scry(`/v0/notes/${activeNotebookFlag}`);
   if (data) {
     notes = {};
     (data || []).forEach(n => notes[n.id] = n);
-    notesByNb[notebookId] = { ...notes };
+    notesByNb[activeNotebookFlag] = { ...notes };
   }
   renderItems();
   renderBacklinks();
@@ -2370,10 +2472,10 @@ function renderNotebooks() {
   }
   list.sort((a,b) => a.title.localeCompare(b.title)).forEach(nb => {
     const div = document.createElement("div");
-    div.className = "nb-item" + (nb.id === activeNotebookId ? " active" : "");
+    div.className = "nb-item" + (nb.flag === activeNotebookFlag ? " active" : "");
     const lockHtml = nb.visibility === "private" ? `<svg class="icon nb-lock"><use href="#i-lock"/></svg>` : "";
     div.innerHTML = `<span class="nb-icon">${icon('notebook')}</span><span class="nb-name">${esc(nb.title)}</span>${lockHtml}<span class="nb-flag">${esc(nb.flag)}</span>`;
-    div.onclick = () => selectNotebook(nb.id);
+    div.onclick = () => selectNotebook(nb.flag);
     el.appendChild(div);
   });
 }
@@ -2399,7 +2501,7 @@ function updateHeader() {
   const rootId = rootFolderId();
   const isAtRoot = !activeFolderId || activeFolderId === rootId;
   if (isAtRoot) {
-    const nb = notebooks[activeNotebookId];
+    const nb = notebooks[activeNotebookFlag];
     labelEl.textContent = nb?.title || "Notes";
     upBtn.style.display = "none";
     settingsWrap.style.display = "";
@@ -2595,10 +2697,10 @@ function buildZip(entries) {
 async function exportNotebook() {
   closeNotebookSettings();
   if (!activeNotebookId) return;
-  const nb = notebooks[activeNotebookId];
+  const nb = notebooks[activeNotebookFlag];
   if (!nb) return;
-  await loadFolders(activeNotebookId);
-  await loadNotes(activeNotebookId);
+  await loadFolders();
+  await loadNotes();
 
   const rootId = rootFolderId();
   const pathOf = (fid) => {
@@ -2679,34 +2781,30 @@ function triggerImport(isFolder) {
         }
         const text = await file.text();
         const title = file.name.replace(/\.(md|txt|markdown|text)$/i, "");
-        node.push({ title, bodyMd: text });
+        node.push({ title, body: text });
       }
-      await pokeAction({
-        "batch-import-tree": {
-          notebookId: activeNotebookId,
-          parentFolderId: folderId,
-          tree: tree
-        }
+      await pokeNotebook({
+        type: "batch-import-tree",
+        parent: folderId,
+        tree: tree
       });
     } else {
       const noteItems = [];
       for (const file of mdFiles) {
         const text = await file.text();
         const title = file.name.replace(/\.(md|txt|markdown|text)$/i, "");
-        noteItems.push({ title, bodyMd: text });
+        noteItems.push({ title, body: text });
       }
-      await pokeAction({
-        "batch-import": {
-          notebookId: activeNotebookId,
-          folderId: folderId,
-          notes: noteItems
-        }
+      await pokeNotebook({
+        type: "batch-import",
+        folder: folderId,
+        notes: noteItems
       });
     }
 
     setTimeout(async () => {
-      await loadFolders(activeNotebookId);
-      await loadNotes(activeNotebookId);
+      await loadFolders();
+      await loadNotes();
       document.getElementById("save-status").textContent = "Imported " + mdFiles.length + " notes";
       setTimeout(() => { document.getElementById("save-status").textContent = ""; }, 3000);
     }, 500);
@@ -2888,21 +2986,21 @@ function inline(s) {
 }
 
 // ── Selection ─────────────────────────────────────────────────────────────
-async function selectNotebook(id) {
+async function selectNotebook(flag) {
   if (!await confirmDirty()) return;
   closeHistoryPanel();
-  const changing = activeNotebookId !== id;
-  activeNotebookId = id;
-  const nb = notebooks[id];
-  activeNotebookFlag = nb ? nb.flag : null;
+  const changing = activeNotebookFlag !== flag;
+  const nb = notebooks[flag];
+  activeNotebookFlag = flag;
+  activeNotebookId = nb ? nb.id : null;
   activeFolderId = null;
   activeNoteId = null;
   if (changing) {
     // Restore from per-notebook caches (populated by prior visits or by the
     // switcher's index build) so the UI paints target-notebook data
     // immediately — even if the fresh scry below fails offline.
-    folders = foldersByNb[id] ? { ...foldersByNb[id] } : {};
-    notes = notesByNb[id] ? { ...notesByNb[id] } : {};
+    folders = foldersByNb[flag] ? { ...foldersByNb[flag] } : {};
+    notes = notesByNb[flag] ? { ...notesByNb[flag] } : {};
   }
   // If we have cached folders, default to root and paint immediately. URL
   // and rest of state stay correct without waiting on the scry.
@@ -2914,7 +3012,7 @@ async function selectNotebook(id) {
   // Fire fresh scries in parallel — they'll re-render when they land. We
   // don't await so navigation feels instant; the cache (if any) is what
   // the user sees in the meantime.
-  Promise.all([loadFolders(id), loadNotes(id)]).catch(() => {});
+  Promise.all([loadFolders(), loadNotes()]).catch(() => {});
   subscribeEvents();
   saveSelection();
   pushRoute();
@@ -2990,14 +3088,14 @@ async function buildSwitcherIndex() {
   // results entirely and only index folders + notes for that notebook.
   const allNbs = Object.values(notebooks);
   const nbs = EMBED_PARAMS.embed
-    ? allNbs.filter(nb => nb.id === activeNotebookId)
+    ? allNbs.filter(nb => nb.flag === activeNotebookFlag)
     : allNbs;
   if (!EMBED_PARAMS.embed) for (const nb of nbs) {
     items.push({
       kind: "notebook",
       label: nb.title || "Untitled notebook",
       subtitle: nb.flag,
-      navigate: () => selectNotebook(nb.id)
+      navigate: () => selectNotebook(nb.flag)
     });
   }
   // Fetch folders + notes for every notebook in parallel.
@@ -3010,12 +3108,12 @@ async function buildSwitcherIndex() {
     ]); } catch (_) { return; }
     // Stash into the per-notebook caches so cross-notebook nav works offline.
     if (fdata) {
-      foldersByNb[nb.id] = {};
-      (fdata || []).forEach(f => foldersByNb[nb.id][f.id] = f);
+      foldersByNb[nb.flag] = {};
+      (fdata || []).forEach(f => foldersByNb[nb.flag][f.id] = f);
     }
     if (ndata) {
-      notesByNb[nb.id] = {};
-      (ndata || []).forEach(n => notesByNb[nb.id][n.id] = n);
+      notesByNb[nb.flag] = {};
+      (ndata || []).forEach(n => notesByNb[nb.flag][n.id] = n);
     }
     const fByNb = {};
     (fdata || []).forEach(f => fByNb[f.id] = f);
@@ -3026,7 +3124,7 @@ async function buildSwitcherIndex() {
         kind: "folder",
         label: f.name,
         subtitle: nbName,
-        navigate: async () => { await selectNotebook(nb.id); navigateToFolder(f.id); }
+        navigate: async () => { await selectNotebook(nb.flag); navigateToFolder(f.id); }
       });
     });
     (ndata || []).forEach(n => {
@@ -3036,7 +3134,7 @@ async function buildSwitcherIndex() {
         kind: "note",
         label: n.title || "Untitled",
         subtitle: nbName + folderPart,
-        navigate: async () => { await selectNotebook(nb.id); await selectNote(n.id); },
+        navigate: async () => { await selectNotebook(nb.flag); await selectNote(n.id); },
         // Rich metadata reused by full-text search
         noteId: n.id,
         notebookId: nb.id,
@@ -3348,11 +3446,9 @@ async function createNoteFromWikiLink(title) {
   let folderId = activeNoteId && notes[activeNoteId] ? notes[activeNoteId].folderId : activeFolderId;
   if (!folderId) folderId = rootFolderId();
   if (!folderId) return;
-  await pokeAction({
-    "create-note": { notebookId: activeNotebookId, folderId, title, bodyMd: "" }
-  });
+  await pokeNotebook({ type: "create-note", folder: folderId, title, body: "" });
   setTimeout(async () => {
-    await loadNotes(activeNotebookId);
+    await loadNotes();
     // Find the note we just created (most recent with matching title in that folder)
     const candidates = Object.values(notes)
       .filter(n => n.folderId === folderId && (n.title || "").toLowerCase() === title.toLowerCase())
@@ -3967,13 +4063,11 @@ async function newNote() {
   if (!activeFolderId) { alert("No folder selected"); return; }
   if (!await confirmDirty()) return;
 
-  await pokeAction({
-    "create-note": { notebookId: activeNotebookId, folderId: activeFolderId, title: "Untitled", bodyMd: "" }
-  });
+  await pokeNotebook({ type: "create-note", folder: activeFolderId, title: "Untitled", body: "" });
 
   // Reload, select the newest note, and focus the editor
   setTimeout(async () => {
-    await loadNotes(activeNotebookId);
+    await loadNotes();
     const inFolder = Object.values(notes).filter(n => n.folderId === activeFolderId);
     const newest = inFolder.sort((a,b) => b.id - a.id)[0];
     if (newest) {
@@ -4021,14 +4115,12 @@ async function triggerAutoCreate() {
     return;
   }
   autoCreating = true;
-  await pokeAction({
-    "create-note": { notebookId: activeNotebookId, folderId: activeFolderId, title: "Untitled", bodyMd: "" }
-  });
+  await pokeNotebook({ type: "create-note", folder: activeFolderId, title: "Untitled", body: "" });
   setTimeout(async () => {
     // Capture what the user typed during the create roundtrip
     const pendingBody = editor.value;
     const pendingTitle = titleInput.value;
-    await loadNotes(activeNotebookId);
+    await loadNotes();
     const inFolder = Object.values(notes).filter(n => n.folderId === activeFolderId);
     const newest = inFolder.sort((a,b) => b.id - a.id)[0];
     autoCreating = false;
@@ -4058,9 +4150,10 @@ async function autoSave() {
 
   document.getElementById("save-status").textContent = "Saving\u2026";
 
-  const nb = notebooks[n.notebookId];
-  const isLocal = nb && SHIP && nb.host.replace(/^~/, "") === SHIP.replace(/^~/, "");
-  const sentRev = isLocal ? savedRevision : 0;
+  // Strict revision check on the host — always send the real revision; the
+  // stream keeps subscribers' savedRevision current so this is correct on
+  // both host-owned and subscribed notebooks.
+  const sentRev = savedRevision;
   // Pre-bump savedRevision BEFORE sending so the echoed note-updated event
   // (which may arrive before pokeAction's ack resolves) is recognized as our
   // own save via isOwnSaveEcho's revision check.
@@ -4069,9 +4162,9 @@ async function autoSave() {
   lastOwnSaveAt = Date.now();
 
   try {
-    await pokeAction({ "update-note": { notebookId: n.notebookId, noteId: activeNoteId, bodyMd: body, expectedRevision: sentRev } });
+    await pokeNoteAction(activeNoteId, { type: "update", body, expectedRevision: sentRev });
     if (title !== n.title) {
-      await pokeAction({ "rename-note": { notebookId: n.notebookId, noteId: activeNoteId, title } });
+      await pokeNoteAction(activeNoteId, { type: "rename", title });
     }
     notes[activeNoteId] = { ...n, title, bodyMd: body, revision: savedRevision };
     dirty = false;
@@ -4240,9 +4333,7 @@ async function deleteNote() {
   const title = n.title || "Untitled";
   if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
 
-  await pokeAction({
-    "delete-note": { noteId: activeNoteId, notebookId: activeNotebookId }
-  });
+  await pokeNoteAction(activeNoteId, { type: "delete" });
 
   delete notes[activeNoteId];
   activeNoteId = null;
@@ -4346,9 +4437,7 @@ async function publishCurrentNoteHtml() {
   const rendered = transformWikiLinksForPublish(renderMarkdown(body));
   const html = publishTemplate(n.title || "Untitled", rendered);
   try {
-    await pokeAction({
-      "publish-note": { notebookId: activeNotebookId, noteId: activeNoteId, html }
-    });
+    await pokeNoteAction(activeNoteId, { type: "publish", html });
     return true;
   } catch (_) {
     return false;
@@ -4374,9 +4463,7 @@ async function unpublishNote() {
   closeOverflow();
   if (!activeNoteId || !activeNotebookId) return;
 
-  await pokeAction({
-    "unpublish-note": { notebookId: activeNotebookId, noteId: activeNoteId }
-  });
+  await pokeNoteAction(activeNoteId, { type: "unpublish" });
 
   publishedIds.delete(pubKey(activeNotebookFlag, activeNoteId));
   document.getElementById("publish-btn").style.display = "";
@@ -4504,7 +4591,7 @@ function openModal(type) {
     `;
   } else if (type === "rename-notebook") {
     if (!activeNotebookId) return;
-    const nb = notebooks[activeNotebookId];
+    const nb = notebooks[activeNotebookFlag];
     if (!nb) return;
     box.innerHTML = `
       <h3>Rename Notebook</h3>
@@ -4517,7 +4604,7 @@ function openModal(type) {
     box.querySelector("#m-title").addEventListener("keydown", e => { if (e.key==="Enter") renameNotebook(); });
   } else if (type === "invite-ship") {
     if (!activeNotebookId) return;
-    const nb = notebooks[activeNotebookId];
+    const nb = notebooks[activeNotebookFlag];
     if (!nb) return;
     box.innerHTML = `
       <h3>Invite ship</h3>
@@ -4591,7 +4678,7 @@ async function createNotebook() {
   const title = document.getElementById("m-title")?.value?.trim();
   if (!title) return;
   document.getElementById("modal-backdrop").classList.remove("open");
-  await pokeAction({ "create-notebook": title });
+  await pokeTopLevel({ type: "create-notebook", title });
   setTimeout(() => loadNotebooks(), 300);
 }
 
@@ -4665,7 +4752,7 @@ async function inviteShip() {
   }
   document.getElementById("modal-backdrop").classList.remove("open");
   try {
-    await pokeAction({ "send-invite": { notebookId: activeNotebookId, ship } });
+    await pokeNotebook({ type: "invite", who: ship });
   } catch (e) {
     alert("Invite failed: " + (e?.message || "unknown error"));
   }
@@ -4681,7 +4768,7 @@ async function renameNotebook() {
   const title = document.getElementById("m-title")?.value?.trim();
   if (!title || !activeNotebookId) return;
   document.getElementById("modal-backdrop").classList.remove("open");
-  await pokeAction({ "rename-notebook": { notebookId: activeNotebookId, title } });
+  await pokeNotebook({ type: "rename", title });
   setTimeout(() => loadNotebooks(), 300);
 }
 
@@ -4741,14 +4828,12 @@ async function deleteTargetFolder() {
     ? ` This will also delete ${childCount} item${childCount === 1 ? "" : "s"} inside it.`
     : "";
   if (!confirm(`Delete folder "${f.name}"?${detail} This cannot be undone.`)) return;
-  await pokeAction({
-    "delete-folder": { notebookId: activeNotebookId, folderId: f.id, recursive: true }
-  });
+  await pokeFolderAction(f.id, { type: "delete", recursive: true });
   // If we were inside this folder (or a descendant), navigate up to root
   if (activeFolderId === f.id) navigateToFolder(rootFolderId());
   setTimeout(async () => {
-    await loadFolders(activeNotebookId);
-    await loadNotes(activeNotebookId);
+    await loadFolders();
+    await loadNotes();
   }, 300);
 }
 
@@ -4758,20 +4843,18 @@ async function submitRenameFolder() {
   if (!name || !pendingFolderEdit) return;
   const f = pendingFolderEdit;
   document.getElementById("modal-backdrop").classList.remove("open");
-  await pokeAction({
-    "rename-folder": { notebookId: activeNotebookId, folderId: f.id, name }
-  });
+  await pokeFolderAction(f.id, { type: "rename", name });
   pendingFolderEdit = null;
-  setTimeout(() => loadFolders(activeNotebookId), 300);
+  setTimeout(() => loadFolders(), 300);
 }
 
 async function deleteNotebook() {
   closeNotebookSettings();
   if (!activeNotebookId) return;
-  const nb = notebooks[activeNotebookId];
+  const nb = notebooks[activeNotebookFlag];
   if (!nb) return;
   if (!confirm(`Delete notebook "${nb.title}"? This cannot be undone.`)) return;
-  await pokeAction({ "delete-notebook": { notebookId: activeNotebookId } });
+  await pokeNotebook({ type: "delete" });
   activeNotebookId = null;
   activeNotebookFlag = null;
   activeFolderId = null;
@@ -4787,12 +4870,13 @@ async function deleteNotebook() {
 async function toggleNotebookVisibility() {
   closeNotebookSettings();
   if (!activeNotebookId) return;
-  const nb = notebooks[activeNotebookId];
+  const nb = notebooks[activeNotebookFlag];
   if (!nb) return;
   const next = nb.visibility === "public" ? "private" : "public";
-  await pokeAction({ "set-visibility": { notebookId: activeNotebookId, visibility: next } });
+  await pokeNotebook({ type: "visibility", visibility: next });
   // Optimistic local update
   nb.visibility = next;
+  renderNotebooks();
   updateHeader();
   // One-time hint the first time a notebook is made public
   if (next === "public") {
@@ -4848,13 +4932,13 @@ async function copyActiveFlag() {
 async function leaveRemoteNotebook() {
   closeNotebookSettings();
   if (!activeNotebookId || !activeNotebookFlag) return;
-  const nb = notebooks[activeNotebookId];
+  const nb = notebooks[activeNotebookFlag];
   if (!nb) return;
   if (!confirm(`Leave notebook "${nb.title}"?`)) return;
   const slash = activeNotebookFlag.indexOf("/");
   const ship = activeNotebookFlag.slice(0, slash);
   const name = activeNotebookFlag.slice(slash + 1);
-  await pokeAction({ "leave-remote": { ship, name } });
+  await pokeTopLevel({ type: "leave", ship, name });
   activeNotebookId = null;
   activeNotebookFlag = null;
   activeFolderId = null;
@@ -4874,7 +4958,7 @@ async function joinNotebook() {
   const ship = parts[0].startsWith("~") ? parts[0] : "~" + parts[0];
   const name = parts.slice(1).join("/");
   document.getElementById("modal-backdrop").classList.remove("open");
-  await pokeAction({ "join-remote": { ship, name } });
+  await pokeTopLevel({ type: "join", ship, name });
   setTimeout(() => loadNotebooks(), 2000);
 }
 
@@ -4891,14 +4975,8 @@ async function createFolder() {
     parentFolderId = rootFolder ? rootFolder.id : null;
   }
 
-  await pokeAction({
-    "create-folder": {
-      notebookId: activeNotebookId,
-      parentFolderId: parentFolderId,
-      name
-    }
-  });
-  setTimeout(() => loadFolders(activeNotebookId), 300);
+  await pokeNotebook({ type: "create-folder", parent: parentFolderId || null, name });
+  setTimeout(() => loadFolders(), 300);
 }
 
 // ── Keyboard shortcuts ────────────────────────────────────────────────────
@@ -5454,7 +5532,8 @@ function esc(s) {
 function isOwnSaveEchoPure(evt, savedRev, shipId, lastSaveAt, now) {
   const r = evt && evt.revision;
   if (typeof r === "number" && r <= savedRev) return true;
-  const actor = ((evt && evt.actor) || "").replace(/^~/, "");
+  // Support both old "actor" field and new "updatedBy" field
+  const actor = ((evt && (evt.actor || evt.updatedBy)) || "").replace(/^~/, "");
   const us = (shipId || "").replace(/^~/, "");
   if (actor && us && actor === us && now - lastSaveAt < 2000) return true;
   return false;

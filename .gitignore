@@ -20,3 +20,12 @@ desk/sur/verb.hoon
 # peru state
 /.peru/
 /peru.lock
+
+# Node / Playwright
+node_modules
+tests/e2e/.env
+tests/e2e/.auth
+tests/playwright-report
+tests/test-results
+tests/e2e/playwright-report
+tests/e2e/test-results
