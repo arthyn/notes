@@ -662,24 +662,15 @@
     cor
   ::
       [%v0 %notes ship=@ name=@ %updates ~]
-    ::  subscriber watching our notebook's update stream
+    ::  remote subscriber watching our hosted notebook's update stream
     =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
     ?>  =(our.bowl ship.flag)
-    ?~  entry=(get-book flag)  ~|(notebook-not-found+flag !!)
-    ?>  ?=(%pub -.net.u.entry)
-    ?>  (se-can-view:(se-abed:se-core flag) src.bowl)
-    ::  send initial snapshot (with visibility so subscriber can seed it)
-    se-abet:(se-watch-sub:(se-abed:se-core flag) src.bowl)
+    se-abet:se-watch:(se-abed:se-core flag)
   ::
       [%v0 %notes ship=@ name=@ %stream ~]
-    ::  local UI subscription
+    ::  local UI subscription for any notebook (pub or sub)
     =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
-    ?~  entry=(get-book flag)  ~|(notebook-not-found+flag !!)
-    ?>  (can-view-flag flag src.bowl)
-    ::  send initial snapshot carrying visibility from notebook-state
-    %-  give
-    :+  %fact  [`path`pole]~
-    notes-response+!>(`response:n`[%snapshot flag visibility.notebook-state.u.entry notebook-state.u.entry])
+    no-abet:no-watch:(no-abed:no-core flag)
   ::
       [%v0 %inbox %stream ~]
     ?>  =(src.bowl our.bowl)
@@ -693,7 +684,7 @@
     ::  /x/ui — serve the frontend
       [%x %ui ~]
     ``html+!>(index:ui)
-    ::  /x/v0/notebooks — list all notebooks
+    ::  /x/v0/notebooks — list all notebooks (cross-cutting, no flag)
       [%x %v0 %notebooks ~]
     =/  nbs=(list json)
       %+  murn  ~(tap by books.state)
@@ -706,77 +697,6 @@
           ['visibility' s+(scot %tas visibility.notebook-state)]
       ==
     ``json+!>([%a nbs])
-    ::  /x/v0/notebook/<ship>/<name>
-      [%x %v0 %notebook ship=@ name=@ ~]
-    =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
-    ?~  entry=(get-book flag)  ``json+!>(~)
-    ?>  (can-view-flag flag src.bowl)
-    =-  ``json+!>((pairs:enjs:format -))
-    :~  ['host' s+(scot %p ship.flag)]
-        ['flagName' s+name.flag]
-        ['notebook' (notebook:enjs:notes-json notebook.notebook-state.u.entry)]
-    ==
-    ::  /x/v0/folders/<ship>/<name>
-      [%x %v0 %folders ship=@ name=@ ~]
-    =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
-    ?~  entry=(get-book flag)  ``json+!>(~)
-    ?>  (can-view-flag flag src.bowl)
-    =/  flds=(list json)
-      %+  turn  ~(val by folders.notebook-state.u.entry)
-      folder:enjs:notes-json
-    ``json+!>([%a flds])
-    ::  /x/v0/notes/<ship>/<name>
-      [%x %v0 %notes ship=@ name=@ ~]
-    =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
-    ?~  entry=(get-book flag)  ``json+!>(~)
-    ?>  (can-view-flag flag src.bowl)
-    =/  nts=(list json)
-      %+  turn  ~(val by notes.notebook-state.u.entry)
-      note:enjs:notes-json
-    ``json+!>([%a nts])
-    ::  /x/v0/note/<ship>/<name>/<id> — single note by ID
-      [%x %v0 %note ship=@ name=@ id=@ ~]
-    =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
-    ?~  entry=(get-book flag)  ``json+!>(~)
-    ?>  (can-view-flag flag src.bowl)
-    =/  nid=@ud  (slav %ud id.pole)
-    ?~  nt=(~(get by notes.notebook-state.u.entry) nid)
-      ``json+!>(~)
-    ``json+!>((note:enjs:notes-json u.nt))
-    ::  /x/v0/note-history/<ship>/<name>/<id> — revision history for a note
-      [%x %v0 %note-history ship=@ name=@ id=@ ~]
-    =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
-    ?~  entry=(get-book flag)  ``json+!>(~)
-    ?>  (can-view-flag flag src.bowl)
-    =/  nid=@ud  (slav %ud id.pole)
-    =/  revs=(list note-revision:n)
-      (fall (~(get by history.notebook-state.u.entry) nid) ~)
-    =/  items=(list json)
-      %+  turn  revs
-      note-revision:enjs:notes-json
-    ``json+!>([%a items])
-    ::  /x/v0/folder/<ship>/<name>/<id> — single folder by ID
-      [%x %v0 %folder ship=@ name=@ id=@ ~]
-    =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
-    ?~  entry=(get-book flag)  ``json+!>(~)
-    ?>  (can-view-flag flag src.bowl)
-    =/  fid=@ud  (slav %ud id.pole)
-    ?~  fld=(~(get by folders.notebook-state.u.entry) fid)
-      ``json+!>(~)
-    ``json+!>((folder:enjs:notes-json u.fld))
-    ::  /x/v0/members/<ship>/<name>
-      [%x %v0 %members ship=@ name=@ ~]
-    =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
-    ?~  entry=(get-book flag)  ``json+!>(~)
-    ?>  (can-view-flag flag src.bowl)
-    =/  mlist=(list json)
-      %+  turn  ~(tap by members.notebook-state.u.entry)
-      |=  [who=ship r=role:n]
-      %-  pairs:enjs:format
-      :~  ['ship' s+(scot %p who)]
-          ['role' s+(scot %tas r)]
-      ==
-    ``json+!>([%a mlist])
     ::  /x/v0/published — list of {host, flagName, noteId} for each published note
       [%x %v0 %published ~]
     =/  items=(list json)
@@ -804,6 +724,11 @@
     ::  /x/debug/dummy — current ++dummy value for tooling readiness checks
       [%x %debug %dummy ~]
     ``json+!>(s+dummy)
+    ::  /x/v0/<kind>/<ship>/<name>[/<rest>] — delegate to no-peek
+      [%x %v0 kind=@ ship=@ name=@ rest=*]
+    =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
+    ?~  (~(get by books.state) flag)  ``json+!>(~)
+    (no-peek:(no-abed:no-core flag) kind.pole rest.pole)
   ==
 ::
 ++  agent
@@ -942,6 +867,13 @@
     ^+  se-core
     %-  give
     [%fact ~ notes-response+!>(`response:n`[%snapshot flag visibility.notebook-state notebook-state])]
+  ::
+  ::  +se-watch: handle remote-subscriber watch (dispatch from top-level +watch)
+  ++  se-watch
+    ^+  se-core
+    ?>  =(our.bowl ship.flag)
+    ?>  (se-can-view src.bowl)
+    (se-watch-sub src.bowl)
   ::
   ++  se-can-view
     |=  who=ship
@@ -1478,7 +1410,6 @@
     ?~  entry=(~(get by books.state) f)
       ~|(no-abed-not-found+f !!)
     =/  [=net:n =notebook-state:n]  u.entry
-    ?>  ?=(%sub -.net)
     no-core(flag f, net net, notebook-state notebook-state)
   ::
   ++  no-abet
@@ -1502,6 +1433,7 @@
   ++  no-action
     |=  act=action:n
     ^+  no-core
+    ?>  ?=(%sub -.net)
     ?>  ?=(%notebook -.act)
     =/  cmd=command:n
       [%notebook flag.act (a-notebook-to-c-notebook a-notebook.act)]
@@ -1516,11 +1448,13 @@
   ::
   ++  no-start-watch
     ^+  no-core
+    ?>  ?=(%sub -.net)
     %-  emit
     [%pass no-sub-wire %agent [ship.flag %notes] %watch no-sub-path]
   ::
   ++  no-leave
     ^+  no-core
+    ?>  ?=(%sub -.net)
     =.  gone  &
     %-  emit
     [%pass no-sub-wire %agent [ship.flag %notes] %leave ~]
@@ -1529,6 +1463,7 @@
   ++  no-agent
     |=  =sign:agent:gall
     ^+  no-core
+    ?>  ?=(%sub -.net)
     ?+  -.sign  no-core
         %fact
       =/  =response:n  !<(response:n q.cage.sign)
@@ -1661,5 +1596,73 @@
         (~(put by history.notebook-state) nid [note-revision.upd existing])
       no-core
     ==
+  ::
+  ::  +no-peek: handle per-notebook scry requests
+  ::  kind: the path segment after /v0/ (e.g. %notebook, %notes, %note, etc.)
+  ::  rest: the remainder of the pole after kind/ship/name (typed as *)
+  ++  no-peek
+    |=  [kind=@ rest=*]
+    ^-  (unit (unit cage))
+    ?>  ?=(^ (~(get by members.notebook-state) src.bowl))
+    ?+  kind  ~
+        %notebook
+      =-  ``json+!>((pairs:enjs:format -))
+      :~  ['host' s+(scot %p ship.flag)]
+          ['flagName' s+name.flag]
+          ['notebook' (notebook:enjs:notes-json notebook.notebook-state)]
+      ==
+    ::
+        %folders
+      =/  flds=(list json)
+        %+  turn  ~(val by folders.notebook-state)
+        folder:enjs:notes-json
+      ``json+!>([%a flds])
+    ::
+        %notes
+      =/  nts=(list json)
+        %+  turn  ~(val by notes.notebook-state)
+        note:enjs:notes-json
+      ``json+!>([%a nts])
+    ::
+        %note
+      =/  nid=@ud  (slav %ud ;;(@ -.rest))
+      ?~  nt=(~(get by notes.notebook-state) nid)
+        ``json+!>(~)
+      ``json+!>((note:enjs:notes-json u.nt))
+    ::
+        %note-history
+      =/  nid=@ud  (slav %ud ;;(@ -.rest))
+      =/  revs=(list note-revision:n)
+        (fall (~(get by history.notebook-state) nid) ~)
+      =/  items=(list json)
+        %+  turn  revs
+        note-revision:enjs:notes-json
+      ``json+!>([%a items])
+    ::
+        %folder
+      =/  fid=@ud  (slav %ud ;;(@ -.rest))
+      ?~  fld=(~(get by folders.notebook-state) fid)
+        ``json+!>(~)
+      ``json+!>((folder:enjs:notes-json u.fld))
+    ::
+        %members
+      =/  mlist=(list json)
+        %+  turn  ~(tap by members.notebook-state)
+        |=  [who=ship r=role:n]
+        %-  pairs:enjs:format
+        :~  ['ship' s+(scot %p who)]
+            ['role' s+(scot %tas r)]
+        ==
+      ``json+!>([%a mlist])
+    ==
+  ::
+  ::  +no-watch: handle local UI stream subscription for this notebook
+  ++  no-watch
+    ^+  no-core
+    ?>  ?=(^ (~(get by members.notebook-state) src.bowl))
+    %-  give
+    :+  %fact
+      [`path`/v0/notes/(scot %p ship.flag)/[name.flag]/stream]~
+    notes-response+!>(`response:n`[%snapshot flag visibility.notebook-state notebook-state])
   --
 --
