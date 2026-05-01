@@ -26,44 +26,46 @@ There's also a companion macOS menubar app at `app/src-tauri/` (Tauri v2). See `
 
 ## UI Workflow (Critical)
 
-The agent imports the UI as a cord at compile time:
+The agent imports the UI core at compile time:
 
 ```hoon
-/=  index  /lib/notes-ui
+/=  ui  /lib/notes-ui
 ```
 
-**This means `app/notes-ui/index.html` is NOT what the browser sees.** The served HTML comes from `lib/notes-ui.hoon`. These two files must stay in sync.
+`lib/notes-ui.hoon` is a `|%` core with arms `++index`, `++manifest`, `++service-worker`, `++favicon-svg`, `++icon-svg`. The agent references them as `index:ui`, `manifest:ui`, etc.
+
+**`app/notes-ui/index.html` is NOT what the browser sees.** The served HTML comes from the `++index` arm in `lib/notes-ui.hoon`. The two must stay in sync — regenerate the lib after every edit.
 
 ### Edit → Sync → Deploy workflow
 
 1. Edit `desk/app/notes-ui/index.html` (the working copy)
-2. Generate the hoon lib wrapper:
+2. Regenerate the `++index` arm in `desk/lib/notes-ui.hoon`:
    ```sh
-   { printf "^-  @t\n'''\n"; cat desk/app/notes-ui/index.html; printf "'''\n"; } > desk/lib/notes-ui.hoon
+   ./scripts/build-notes-ui.sh
    ```
-3. Bump `++dummy` in `desk/app/notes.hoon` to force a recompile (the agent won't pick up UI changes unless the hoon source changes):
+   The script splices the index.html content into the `++index` arm and leaves the static-asset arms (manifest, sw, icons) untouched. To edit those, hand-edit `desk/lib/notes-ui.hoon`.
+3. Bump `++dummy` in `desk/app/notes.hoon` to force a recompile:
    ```hoon
    ++  dummy  'describe-your-change-v1'
    ```
 4. Rsync to the dev ship and commit:
    ```sh
-   rsync -avL desk/ ~/bospur-davmyl-nocsyx-lassul/notes/
+   rsync -avL desk/ ~/sidwyn-nimnev-nocsyx-lassul/notes/
    ```
    **Do NOT use `--delete`** — rsync without delete to avoid wiping ship-side files.
-5. Build and commit via MCP (bospur):
+5. Commit via MCP:
    ```
-   mcp__bospur__build-file  desk=notes  path=/app/notes/hoon
-   mcp__bospur__commit-desk  desk=notes
+   mcp__sidwyn__commit-desk  desk=notes
    ```
 6. Hard-refresh the browser (Cmd+Shift+R) to see changes.
 
 ### Important: triple-quote safety
 
-`lib/notes-ui.hoon` wraps the HTML in a Hoon triple-quoted cord (`'''`). If the HTML ever contains `'''` the build will break. Grep for it before generating.
+`lib/notes-ui.hoon` wraps each asset in a Hoon triple-quoted cord (`'''`). If the index.html ever contains `'''` the build will break — `build-notes-ui.sh` will refuse to run in that case.
 
 ## Dev Ship
 
-The dev moon is `~bospur-davmyl-nocsyx-lassul`. It has a `%notes` desk mounted at `~/bospur-davmyl-nocsyx-lassul/notes/`. Use the bospur MCP tools to build, commit, poke, and scry the agent.
+The default dev ship for `%notes` is `~sidwyn-nimnev-nocsyx-lassul` (mounted at `~/sidwyn-nimnev-nocsyx-lassul/notes/`). Use the sidwyn MCP tools (`mcp__sidwyn__*`) to commit, poke, scry, and run tests. Other moons (bospur, simtyc) host different work streams — do not touch them unless explicitly directed.
 
 ## Agent Architecture
 

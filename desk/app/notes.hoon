@@ -2,7 +2,7 @@
 ::
 /-  notes
 /+  default-agent, dbug, verb, notes-json
-/=  index        /lib/notes-ui
+/=  ui           /lib/notes-ui
 /=  share-page   /lib/notes-share
 ::
 |%
@@ -78,7 +78,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'v0.10.0'
+++  dummy  'v0.10.0-http-extracted'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -154,71 +154,6 @@
   ^+  cor
   %-  emit
   [%pass /eyre/notes %arvo %e %connect [~ /notes] %notes]
-::
-::  +manifest: web app manifest served at /notes/manifest.json. The
-::  start_url and scope are anchored at /notes/ so the install prompt
-::  and the service worker only see this app's URL space.
-++  manifest
-  ^-  @t
-  '''
-  {
-    "name": "Notes",
-    "short_name": "Notes",
-    "description": "Collaborative markdown notebooks",
-    "start_url": "/notes/",
-    "scope": "/notes/",
-    "display": "standalone",
-    "background_color": "#0f0f0f",
-    "theme_color": "#7c6af7",
-    "icons": [
-      { "src": "/notes/icon.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any" },
-      { "src": "/notes/icon.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any" },
-      { "src": "/notes/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
-    ]
-  }
-  '''
-::
-::  +service-worker: pass-through SW that satisfies the install criteria
-::  on Chrome/Android without taking responsibility for offline caching
-::  yet. Real offline support (app-shell + IndexedDB) is deferred.
-++  service-worker
-  ^-  @t
-  '''
-  self.addEventListener("install", (e) => self.skipWaiting());
-  self.addEventListener("activate", (e) => self.clients.claim());
-  self.addEventListener("fetch", (e) => {
-    // No caching: defer offline support to a later pass. We still need
-    // a fetch handler for the install prompt to be eligible.
-  });
-  '''
-::
-::  +favicon-svg: tight Paper-original design used for the browser tab.
-::  Inset 96/66 (19%/13%) — looks great at 16-32px favicon size where
-::  more padding would just shrink the recognizable shape.
-++  favicon-svg
-  ^-  @t
-  '''
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-    <rect width="512" height="512" rx="112" fill="#7C6AF7"/>
-    <rect x="96" y="66" width="320" height="380" rx="32" fill="none" stroke="#FFFFFF" stroke-width="18"/>
-    <line x1="186" y1="66" x2="186" y2="446" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round"/>
-  </svg>
-  '''
-::
-::  +icon-svg: padded variant used by the manifest (PWA install / dock /
-::  home-screen icon). Same Paper proportions, scaled to ~70% of the
-::  canvas with the stroke trimmed proportionally so the design reads
-::  consistently when shrunk. macOS/iOS app icons want roughly 18-24%
-::  padding around content.
-++  icon-svg
-  ^-  @t
-  '''
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-    <rect width="512" height="512" rx="112" fill="#7C6AF7"/>
-    <rect x="144" y="123" width="224" height="266" rx="22" fill="none" stroke="#FFFFFF" stroke-width="16"/>
-    <line x1="207" y1="123" x2="207" y2="389" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round"/>
-  </svg>
-  '''
 ::
 ::  +load: migrate old state to current state-10
 ::  Migration cascade: 0→1→2→3→4→5→6→7→8→9→10.
@@ -468,69 +403,7 @@
   ^+  cor
   ?+  mark  ~|(bad-mark+mark !!)
       %handle-http-request
-    =/  req  !<([eyre-id=@ta =inbound-request:eyre] vase)
-    =/  url=@t  url.request.inbound-request.req
-    =/  url-tape=tape  (trip url)
-    ::  drop any query string for path-only matching
-    =/  url-path=tape  (strip-query url-tape)
-    ::  PWA-related static assets: manifest, service worker, icon.
-    ::  Each returns [body content-type] or ~. Served scoped under
-    ::  /notes/ so the SW can control the app's URL space.
-    =/  asset=(unit [body=@t ct=@t])
-      ?:  =("/notes/manifest.json" url-path)
-        `[manifest 'application/manifest+json']
-      ?:  =("/notes/sw.js" url-path)
-        ::  Service-Worker-Allowed isn't required since the SW lives at
-        ::  /notes/sw.js and only needs to control /notes/, but text/javascript
-        ::  is required by some browsers for SW registration to succeed.
-        `[service-worker 'text/javascript']
-      ?:  =("/notes/icon.svg" url-path)
-        `[icon-svg 'image/svg+xml']
-      ?:  =("/notes/favicon.svg" url-path)
-        `[favicon-svg 'image/svg+xml']
-      ~
-    ::  check if this is a published note request: /notes/pub/~ship/name/{note-id}
-    =/  pub-html=(unit @t)
-      ?.  =("/notes/pub/" (scag 11 url-tape))  ~
-      =/  rest=tape  (slag 11 url-tape)
-      ::  drop any query string
-      =/  path-only=tape  (strip-query rest)
-      ::  parse /~ship/name/note-id via stab
-      =/  pax=path  (stab (crip (weld "/" path-only)))
-      ?.  ?=([@ @ @ ~] pax)  ~
-      ?~  ship-u=(slaw %p i.pax)  ~
-      ?~  nid-u=(slaw %ud i.t.t.pax)  ~
-      ?:  =(0 u.nid-u)  ~
-      =/  =flag:notes  [u.ship-u `@tas`i.t.pax]
-      (~(get by published.state) [flag u.nid-u])
-    ::  check if this is a share-redirect request: /notes/share/~ship/name
-    =/  share-html=(unit @t)
-      ?.  =("/notes/share/" (scag 13 url-tape))  ~
-      =/  rest=tape  (slag 13 url-tape)
-      =/  path-only=tape  (strip-query rest)
-      =/  pax=path  (stab (crip (weld "/" path-only)))
-      ?.  ?=([@ @ ~] pax)  ~
-      ?~  (slaw %p i.pax)  ~
-      `share-page
-    ::  serve asset, published note, share page, or the UI (in that order)
-    =/  body=@t
-      ?^  asset      body.u.asset
-      ?^  pub-html   u.pub-html
-      ?^  share-html  u.share-html
-      index
-    =/  ct=@t
-      ?^  asset  ct.u.asset
-      'text/html'
-    =/  data=octs  [(met 3 body) body]
-    =/  headers=(list [key=@t value=@t])
-      :~  ['content-type' ct]
-      ==
-    =/  =response-header:http  [200 headers]
-    %-  emil
-    :~  [%give %fact [/http-response/[eyre-id.req]]~ %http-response-header !>(response-header)]
-        [%give %fact [/http-response/[eyre-id.req]]~ %http-response-data !>(`data)]
-        [%give %kick [/http-response/[eyre-id.req]]~ ~]
-    ==
+    (serve-http !<([eyre-id=@ta =inbound-request:eyre] vase))
   ::
       %notes-action
     ::  Actions are local UI requests — they originate from our own ship.
@@ -597,6 +470,62 @@
       ?>  (~(has by books.state) flag)
       se-abet:(se-poke:(se-abed:se-core flag) [flag c-notebook.cmd])
     ==
+  ==
+::
+::  +serve-http: dispatch an HTTP request to the right responder.
+::  Order: PWA static assets → published note → share redirect → UI fallback.
+++  serve-http
+  |=  [eyre-id=@ta =inbound-request:eyre]
+  ^+  cor
+  =/  url-tape=tape  (trip url.request.inbound-request)
+  =/  url-path=tape  (strip-query url-tape)
+  ::  PWA-related static assets: manifest, service worker, icons.
+  ::  Each returns [body content-type] or ~. Served scoped under
+  ::  /notes/ so the SW can control the app's URL space.
+  =/  asset=(unit [body=@t ct=@t])
+    ?:  =("/notes/manifest.json" url-path)
+      `[manifest:ui 'application/manifest+json']
+    ?:  =("/notes/sw.js" url-path)
+      ::  text/javascript is required by some browsers for SW registration.
+      `[service-worker:ui 'text/javascript']
+    ?:  =("/notes/icon.svg" url-path)
+      `[icon-svg:ui 'image/svg+xml']
+    ?:  =("/notes/favicon.svg" url-path)
+      `[favicon-svg:ui 'image/svg+xml']
+    ~
+  ::  /notes/pub/~ship/name/{note-id} → serve archived published HTML
+  =/  pub-html=(unit @t)
+    ?.  =("/notes/pub/" (scag 11 url-tape))  ~
+    =/  path-only=tape  (strip-query (slag 11 url-tape))
+    =/  pax=path  (stab (crip (weld "/" path-only)))
+    ?.  ?=([@ @ @ ~] pax)  ~
+    ?~  ship-u=(slaw %p i.pax)  ~
+    ?~  nid-u=(slaw %ud i.t.t.pax)  ~
+    ?:  =(0 u.nid-u)  ~
+    =/  =flag:notes  [u.ship-u `@tas`i.t.pax]
+    (~(get by published.state) [flag u.nid-u])
+  ::  /notes/share/~ship/name → serve the share-redirect page
+  =/  share-html=(unit @t)
+    ?.  =("/notes/share/" (scag 13 url-tape))  ~
+    =/  path-only=tape  (strip-query (slag 13 url-tape))
+    =/  pax=path  (stab (crip (weld "/" path-only)))
+    ?.  ?=([@ @ ~] pax)  ~
+    ?~  (slaw %p i.pax)  ~
+    `share-page
+  =/  body=@t
+    ?^  asset       body.u.asset
+    ?^  pub-html    u.pub-html
+    ?^  share-html  u.share-html
+    index:ui
+  =/  ct=@t
+    ?^  asset  ct.u.asset
+    'text/html'
+  =/  data=octs  [(met 3 body) body]
+  =/  =response-header:http  [200 ~[['content-type' ct]]]
+  %-  emil
+  :~  [%give %fact [/http-response/[eyre-id]]~ %http-response-header !>(response-header)]
+      [%give %fact [/http-response/[eyre-id]]~ %http-response-data !>(`data)]
+      [%give %kick [/http-response/[eyre-id]]~ ~]
   ==
 ::
 ::  +a-notebook-to-c-notebook: convert a-notebook to c-notebook (same shape except %restore)
@@ -763,7 +692,7 @@
   ?+  pole  ~
     ::  /x/ui — serve the frontend
       [%x %ui ~]
-    ``html+!>(index)
+    ``html+!>(index:ui)
     ::  /x/v0/notebooks — list all notebooks
       [%x %v0 %notebooks ~]
     =/  nbs=(list json)
