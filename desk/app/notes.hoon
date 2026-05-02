@@ -78,7 +78,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'v0.10.0-fix-join-modal-cache-race'
+++  dummy  'v0.10.1-desktop-sync-dmg-link'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
