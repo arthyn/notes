@@ -78,7 +78,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'http-api-v1-phase-2'
+++  dummy  'fe-on-http-api-v1'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
