@@ -7,7 +7,7 @@
 ::
 |%
 +$  card  card:agent:gall
-+$  current-state  state-10:n
++$  current-state  state-11:n
 --
 ::
 =|  current-state
@@ -78,7 +78,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'v0.12.0'
+++  dummy  'http-api-v1-phase-2'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -87,8 +87,10 @@
 ::
 ++  init
   ^+  cor
-  %-  emit
-  [%pass /eyre/notes %arvo %e %connect [~ /notes] %notes]
+  %-  emil
+  :~  [%pass /eyre/notes %arvo %e %connect [~ /notes] %notes]
+      [%pass /cleanup/requests %arvo %b %wait (add now.bowl ~m5)]
+  ==
 ::
 ::  +load: migrate old state to current state-10 via linear per-step chain.
 ::  Pattern: |^ kelt with =? chain + per-step arms (tloncorp/homestead style).
@@ -106,12 +108,17 @@
   =?  old  ?=(%7 -.old)  (state-7-to-8 old)
   =?  old  ?=(%8 -.old)  (state-8-to-9 old)
   =?  old  ?=(%9 -.old)  (state-9-to-10 old)
-  ?>  ?=(%10 -.old)
+  =?  old  ?=(%10 -.old)  (state-10-to-11 old)
+  ?>  ?=(%11 -.old)
   =.  state  old
-  cor
+  ::  start request cleanup timer (idempotent: stacking timers is fine,
+  ::  each cleanup pass is a no-op on an empty/clean requests map)
+  %-  emit
+  [%pass /cleanup/requests %arvo %b %wait (add now.bowl ~m5)]
   ::
   +$  any-state
-    $%  state-10:n
+    $%  state-11:n
+        state-10:n
         state-9:n
         state-8:n
         state-7:n
@@ -243,6 +250,12 @@
       =/  =flag:n  (fall (~(get by xlat) f) [ship.f `@tas`name.f])
       [flag info]
     [%10 new-books next-id.s new-pub new-invites]
+  ::
+  ++  state-10-to-11
+    ~>  %spin.['state-10-to-11']
+    |=  s=state-10:n
+    ^-  state-11:n
+    [%11 books.s next-id.s published.s invites.s ~]
   --
 ::
 ++  poke
@@ -310,6 +323,65 @@
       ?>  =(ship.flag our.bowl)
       ?>  (~(has by books) flag)
       se-abet:(se-poke:(se-abed:se-core flag) [flag c-notebook.cmd])
+    ==
+  ::
+      %notes-action-1
+    ::  v1 action — carries request-id. Local UI / HTTP API origin.
+    ?>  =(our.bowl src.bowl)
+    =+  !<(act=action:v1:n vase)
+    =/  rid  request-id.act
+    =/  a-act  a-notes.act
+    =.  cor  (register-request rid ~)
+    ?.  ?=(%notebook -.a-act)
+      ::  top-level actions: handle locally, finalize %no-change synchronously.
+      ::  (Future: %ok with snapshot for %create-notebook etc.)
+      =.  cor
+        ?-  -.a-act
+          %create-notebook  se-abet:(se-create-notebook:(se-init:se-core a-act) a-act)
+          %join             (join-remote flag.a-act)
+          %leave            (leave-remote flag.a-act)
+          %accept-invite    (handle-accept-invite flag.a-act)
+          %decline-invite   (handle-decline-invite flag.a-act)
+        ==
+      (finalize-request rid [%no-change ~])
+    ::  notebook-scoped — route through no-action-v1 for cross-ship lifecycle.
+    =/  =flag:n  flag.a-act
+    ?+    -.a-notebook.a-act
+        no-abet:(no-action-v1:(no-abed:no-core flag) rid a-act)
+    ::
+        %invite
+      =.  cor  (handle-send-invite flag who.a-notebook.a-act)
+      (finalize-request rid [%no-change ~])
+    ::
+        %note
+      =*  n-act  a-note.a-notebook.a-act
+      ?+    -.n-act
+          no-abet:(no-action-v1:(no-abed:no-core flag) rid a-act)
+      ::
+          %publish
+        =.  cor  no-abet:(no-publish:(no-abed:no-core flag) id.a-notebook.a-act html.n-act)
+        (finalize-request rid [%no-change ~])
+      ::
+          %unpublish
+        =.  cor  no-abet:(no-unpublish:(no-abed:no-core flag) id.a-notebook.a-act)
+        (finalize-request rid [%no-change ~])
+      ==
+    ==
+  ::
+      %notes-command-1
+    ::  v1 cross-ship command — wraps c-notes with a request-id.
+    =+  !<(cmd1=command:v1:n vase)
+    =/  rid  request-id.cmd1
+    =/  cmd  c-notes.cmd1
+    ?-    -.cmd
+        %notify-invite
+      (handle-notify-invite flag.cmd title.cmd src.bowl)
+    ::
+        %notebook
+      =*  flag  flag.cmd
+      ?>  =(ship.flag our.bowl)
+      ?>  (~(has by books) flag)
+      se-abet:(se-poke-v1:(se-abed:se-core flag) rid [flag c-notebook.cmd])
     ==
   ==
   ::
@@ -401,12 +473,20 @@
   --
 ::
 ::  +serve-http: dispatch an HTTP request to the right responder.
-::  Order: PWA static assets → published note → share redirect → UI fallback.
+::  Order: v1 API → PWA static assets → published note → share redirect → UI fallback.
 ++  serve-http
   |=  [eyre-id=@ta =inbound-request:eyre]
   ^+  cor
   =/  url-tape=tape  (trip url.request.inbound-request)
   =/  url-path=tape  (strip-query url-tape)
+  =/  method=@tas  method.request.inbound-request
+  ::  v1 HTTP API: POST /notes/~/v1, GET /notes/~/v1/request/<uv>
+  ?:  =("/notes/~/v1" url-path)
+    ?:  =(%'POST' method)  (handle-v1-post eyre-id inbound-request)
+    (http-error eyre-id 405 'method not allowed')
+  ?:  =("/notes/~/v1/request/" (scag 20 url-path))
+    ?:  =(%'GET' method)  (handle-v1-get-request eyre-id (slag 20 url-path))
+    (http-error eyre-id 405 'method not allowed')
   ::  PWA-related static assets: manifest, service worker, icons.
   ::  Each returns [body content-type] or ~. Served scoped under
   ::  /notes/ so the SW can control the app's URL space.
@@ -456,6 +536,46 @@
       [%give %kick [/http-response/[eyre-id]]~ ~]
   ==
 ::
+::  +handle-v1-post: parse a v1 action from the POST body, register the
+::  request with eyre-id as http-id (so the HTTP request is held open until
+::  finalize-request emits the response), then dispatch via the normal
+::  %notes-action-1 poke routing.
+++  handle-v1-post
+  |=  [eyre-id=@ta =inbound-request:eyre]
+  ^+  cor
+  ?~  body.request.inbound-request
+    (http-error eyre-id 400 'missing body')
+  =/  body-cord=@t  q.u.body.request.inbound-request
+  =/  jon=(unit json)  (de:json:html body-cord)
+  ?~  jon  (http-error eyre-id 400 'invalid json')
+  =/  =action:v1:n  (action:v1:dejs:notes-json u.jon)
+  =/  rid  request-id.action
+  ::  register with eyre-id so the in-flight HTTP request is tracked
+  =.  requests
+    %+  ~(put by requests)  rid
+    [rid `eyre-id %sending ~ ~ |]
+  ::  dispatch through the same code path as %notes-action-1 poke
+  (poke %notes-action-1 !>(action))
+::
+::  +handle-v1-get-request: respond with the current state of a request.
+::  Path remainder is the @uv id. If the request has a terminal result,
+::  mark fetched=& so cleanup can evict it sooner.
+++  handle-v1-get-request
+  |=  [eyre-id=@ta path-rest=tape]
+  ^+  cor
+  =/  pax=path  (stab (crip (weld "/" path-rest)))
+  ?.  ?=([@ ~] pax)
+    (http-error eyre-id 404 'bad path')
+  =/  rid=request-id:v1:n  (slav %uv i.pax)
+  ?~  req=(~(get by requests) rid)
+    (http-error eyre-id 404 'request not found')
+  =/  body=response-body:v1:n
+    ?~  result.u.req  [%pending poke-status.u.req]
+    u.result.u.req
+  =.  requests
+    (~(put by requests) rid u.req(fetched &))
+  (give-http-response eyre-id [rid body])
+::
 ++  watch
   |=  =(pole knot)
   ^+  cor
@@ -477,6 +597,27 @@
       [%v0 %inbox %stream ~]
     ?>  =(src.bowl our.bowl)
     cor
+  ::
+      [%v1 %notes ship=@ name=@ %request requester=@ id=@ ~]
+    ::  host-side per-request path. Other ships subscribe here while
+    ::  awaiting their response-update. Path includes requester ship
+    ::  so the host can scope facts and reject impersonation.
+    =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
+    ?>  =(our.bowl ship.flag)
+    =/  req-ship=ship  (slav %p requester.pole)
+    ?>  =(src.bowl req-ship)
+    cor
+  ::
+      [%v1 %request id=@ ~]
+    ::  local SSE per-request stream. If we already hold a terminal
+    ::  result, send it now so the subscriber doesn't need to poll GET.
+    ?>  =(src.bowl our.bowl)
+    =/  rid=request-id:v1:n  (slav %uv id.pole)
+    ?~  req=(~(get by requests) rid)  cor
+    ?~  result.u.req  cor
+    %-  give
+    :+  %fact  ~
+    notes-response-1+!>(`response:v1:n`[rid u.result.u.req])
   ==
 ::
 ++  peek
@@ -553,6 +694,20 @@
     ?+  -.sign  cor
         %poke-ack  cor
     ==
+  ::
+      [%notes %req ship=@ name=@ id=@ %watch ~]
+    ::  v1 per-request watch wire. Flag embedded in the wire so we can
+    ::  route back into the right no-core context.
+    =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
+    ?.  (~(has by books) flag)  cor
+    =/  rid=request-id:v1:n  (slav %uv id.pole)
+    no-abet:(no-agent-req-watch:(no-abed:no-core flag) rid sign)
+  ::
+      [%notes %req ship=@ name=@ id=@ %poke ~]
+    =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
+    ?.  (~(has by books) flag)  cor
+    =/  rid=request-id:v1:n  (slav %uv id.pole)
+    no-abet:(no-agent-req-poke:(no-abed:no-core flag) rid sign)
   ==
 ::
 ++  arvo
@@ -562,12 +717,26 @@
   ?:  ?=([%behn %wake *] sign-arvo)
     =/  pole  ;;((pole knot) wire)
     ?+  pole  ~|(bad-arvo-wire+wire !!)
+        [%cleanup %requests ~]
+      ::  reschedule and run the cleanup pass. timer behaves the same
+      ::  whether the requests map is empty or populated.
+      =.  requests  (cleanup-requests now.bowl)
+      %-  emit
+      [%pass /cleanup/requests %arvo %b %wait (add now.bowl ~m5)]
+    ::
         [%notes %rewatch ship=@ name=@ ~]
       =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
       ?.  (~(has by books) flag)  cor
       =/  entry=[=net:n *]  (~(got by books) flag)
       ?.  ?=(%sub -.net.entry)  cor
       no-abet:no-start-watch:(no-abed:no-core flag)
+    ::
+        [%notes %req ship=@ name=@ id=@ %wake ~]
+      ::  v1 per-request timeout — deliver %pending to the held HTTP
+      ::  request (if any) and keep the request entry around for the
+      ::  late-arriving response on the SSE path.
+      =/  rid=request-id:v1:n  (slav %uv id.pole)
+      (finalize-pending rid)
     ==
   ~|(bad-arvo-sign+wire !!)
 ::
@@ -690,6 +859,110 @@
   ^-  card
   [%give %fact [/v0/inbox/stream]~ notes-inbox-update+!>(`u-inbox:n`[%notebooks-changed ~])]
 ::
+::  +cleanup-requests: evict in-flight request records that have terminated.
+::  Rules (match channels-server in tlon-apps PR 5334):
+::    - keep if no terminal result yet, or status is %pending
+::    - keep if no final-at timestamp yet (defensive — shouldn't happen)
+::    - drop unconditionally past 24h
+::    - %ok / %no-change: drop after 5m
+::    - %error: drop only after the client has fetched it
+++  cleanup-requests
+  |=  now=@da
+  ^-  requests:v1:n
+  %-  ~(rep by requests)
+  |=  [[id=request-id:v1:n req=incoming-request:v1:n] out=requests:v1:n]
+  ?:  |(?=(~ result.req) ?=([~ %pending *] result.req))
+    (~(put by out) id req)
+  ?~  final-at.req  (~(put by out) id req)
+  ?:  (gth (sub now u.final-at.req) ~d1)
+    out
+  ?:  |(?=([~ %ok *] result.req) ?=([~ %no-change *] result.req))
+    ?:  (gth (sub now u.final-at.req) ~m5)
+      out
+    (~(put by out) id req)
+  ?:  fetched.req  out
+  (~(put by out) id req)
+::
+::  ====  HTTP / request-id helpers  ====
+::
+::  +http-error: emit a non-200 HTTP error response (plain text body)
+++  http-error
+  |=  [eyre-id=@ta code=@ud message=@t]
+  ^+  cor
+  =/  body=octs  (as-octs:mimes:html message)
+  %-  emil
+  :~  [%give %fact [/http-response/[eyre-id]]~ %http-response-header !>(`response-header:http`[code ~[['content-type' 'text/plain']]])]
+      [%give %fact [/http-response/[eyre-id]]~ %http-response-data !>(`body)]
+      [%give %kick [/http-response/[eyre-id]]~ ~]
+  ==
+::
+::  +give-http-response: emit a 200 application/json HTTP response carrying
+::  the encoded response.
+++  give-http-response
+  |=  [eyre-id=@ta =response:v1:n]
+  ^+  cor
+  =/  =json  (response:v1:enjs:notes-json response)
+  =/  body=octs  (as-octs:mimes:html (en:json:html json))
+  %-  emil
+  :~  [%give %fact [/http-response/[eyre-id]]~ %http-response-header !>(`response-header:http`[200 ~[['content-type' 'application/json']]])]
+      [%give %fact [/http-response/[eyre-id]]~ %http-response-data !>(`body)]
+      [%give %kick [/http-response/[eyre-id]]~ ~]
+  ==
+::
+::  +finalize-request: store terminal body in the request record, fact it on
+::  the per-request SSE path, deliver to a held HTTP request if any, and clear
+::  http-id so a later late-arriving update doesn't re-deliver.
+++  finalize-request
+  |=  [rid=request-id:v1:n body=response-body:v1:n]
+  ^+  cor
+  ?~  req=(~(get by requests) rid)  cor
+  =/  =response:v1:n  [rid body]
+  =.  requests
+    %+  ~(put by requests)  rid
+    u.req(result `body, final-at `now.bowl)
+  =.  cor
+    %-  give
+    [%fact ~[/v1/request/(scot %uv rid)] notes-response-1+!>(response)]
+  ?~  http-id.u.req  cor
+  =.  requests
+    %+  ~(put by requests)  rid
+    u.req(http-id ~, result `body, final-at `now.bowl)
+  (give-http-response u.http-id.u.req response)
+::
+::  +finalize-pending: deliver %pending status to a held HTTP request when the
+::  per-request timeout fires before any terminal response. Keeps the request
+::  open for the SSE subscribers + a future late response.
+++  finalize-pending
+  |=  rid=request-id:v1:n
+  ^+  cor
+  ?~  req=(~(get by requests) rid)  cor
+  ?:  ?&  ?=(^ result.u.req)
+          !?=([~ %pending *] result.u.req)
+      ==
+    cor
+  =/  body=response-body:v1:n  [%pending poke-status.u.req]
+  =/  =response:v1:n  [rid body]
+  =.  requests
+    %+  ~(put by requests)  rid
+    u.req(result `body)
+  =.  cor
+    %-  give
+    [%fact ~[/v1/request/(scot %uv rid)] notes-response-1+!>(response)]
+  ?~  http-id.u.req  cor
+  =.  requests
+    (~(put by requests) rid u.req(http-id ~))
+  (give-http-response u.http-id.u.req response)
+::
+::  +register-request: idempotent insert of a fresh incoming-request record.
+++  register-request
+  |=  [rid=request-id:v1:n eyre-id=(unit @ta)]
+  ^+  cor
+  =/  existing=(unit incoming-request:v1:n)  (~(get by requests) rid)
+  ?^  existing  cor
+  =.  requests
+    (~(put by requests) rid [rid eyre-id %sending ~ ~ |])
+  cor
+::
 ::  +give-inbox-received: emit an invite-received event on /v0/inbox/stream
 ++  give-inbox-received
   |=  [=flag:n from=ship sent-at=@da title=@t]
@@ -707,7 +980,14 @@
 ::  ====  se-core: server/host core  ====
 ::
 ++  se-core
-  |_  [=flag:n =log:n =notebook-state:n gone=_|]
+  |_  $:  =flag:n
+          =log:n
+          =notebook-state:n
+          gone=_|
+          rid=request-id:v1:n
+          last-update=(unit update:n)
+          finalized=?
+      ==
   ++  se-core  .
   ++  emit  |=(=card se-core(cor cor(cards [card cards])))
   ++  give  |=(=gift:agent:gall (emit %give gift))
@@ -747,7 +1027,9 @@
   ++  se-sub-path
     `path`(weld se-area /updates)
   ::
-  ::  +se-update: append update to log and broadcast to subscribers
+  ::  +se-update: append update to log and broadcast to subscribers.
+  ::  Also records the [time u-notebook] as last-update so se-emit-final-response
+  ::  can wrap it in the response-update body for the v1 request flow.
   ++  se-update
     |=  upd=u-notebook:n
     ^+  se-core
@@ -756,9 +1038,51 @@
       ?~  existing=(get:log-on:n log now.bowl)  now.bowl
       $(now.bowl `@da`(add now.bowl ^~((div ~s1 (bex 16)))))
     =.  log  (put:log-on:n log [ts upd])
+    =.  last-update  `[ts upd]
     %-  give
     :+  %fact  ~[se-sub-path (weld se-area /stream)]
     notes-response+!>(`response:n`[%update flag [ts upd]])
+  ::
+  ::  +se-poke-v1: dispatch a c-notes command for a request-id'd flow.
+  ::  Sets rid into se-core's door state, runs the normal se-poke, then
+  ::  emits the terminal response-update on the per-request host path.
+  ++  se-poke-v1
+    |=  [req-id=request-id:v1:n cmd=c-cmd:n]
+    ^+  se-core
+    =.  rid  req-id
+    =.  last-update  ~
+    =.  finalized  |
+    =.  se-core  (se-poke cmd)
+    se-emit-final-response
+  ::
+  ::  +se-emit-final-response: emit response-update on the request path.
+  ::  Skipped if rid is 0 (non-v1 flow) or already explicitly finalized.
+  ++  se-emit-final-response
+    ^+  se-core
+    ?:  =(0 rid)  se-core
+    ?:  finalized  se-core
+    =/  body=response-update-body:v1:n
+      ?~  last-update  [%no-change ~]
+      [%ok u.last-update]
+    =/  =path
+      :+  %v1  %notes
+      /(scot %p ship.flag)/[name.flag]/request/(scot %p src.bowl)/(scot %uv rid)
+    %-  give
+    [%fact ~[path] notes-response-update-1+!>(`response-update:v1:n`[rid body])]
+  ::
+  ::  +se-finalize-with: explicit early-finalize. Use for typed errors so the
+  ::  arm can emit %error response-update without crashing (which would also
+  ::  discard the response-update emission).
+  ++  se-finalize-with
+    |=  body=response-update-body:v1:n
+    ^+  se-core
+    ?:  =(0 rid)  se-core
+    =.  finalized  &
+    =/  =path
+      :+  %v1  %notes
+      /(scot %p ship.flag)/[name.flag]/request/(scot %p src.bowl)/(scot %uv rid)
+    %-  give
+    [%fact ~[path] notes-response-update-1+!>(`response-update:v1:n`[rid body])]
   ::
   ::  +se-watch-sub: send initial snapshot to a new subscriber (with visibility)
   ++  se-watch-sub
@@ -1295,6 +1619,33 @@
   ++  emit  |=(=card no-core(cor cor(cards [card cards])))
   ++  give  |=(=gift:agent:gall (emit %give gift))
   ::
+  ::  +no-req-watch-path: path the subscriber subscribes to on the host
+  ++  no-req-watch-path
+    |=  rid=request-id:v1:n
+    ^-  path
+    :+  %v1  %notes
+    /(scot %p ship.flag)/[name.flag]/request/(scot %p our.bowl)/(scot %uv rid)
+  ::
+  ::  +no-req-watch-wire: subscriber-side wire for the watch on host path.
+  ::  Flag is embedded so signs landing here can be routed back to the
+  ::  right no-core context without a separate lookup map.
+  ++  no-req-watch-wire
+    |=  rid=request-id:v1:n
+    ^-  wire
+    /notes/req/(scot %p ship.flag)/[name.flag]/(scot %uv rid)/watch
+  ::
+  ::  +no-req-poke-wire: subscriber-side wire for the poke to host
+  ++  no-req-poke-wire
+    |=  rid=request-id:v1:n
+    ^-  wire
+    /notes/req/(scot %p ship.flag)/[name.flag]/(scot %uv rid)/poke
+  ::
+  ::  +no-req-wake-wire: per-request timeout behn wire
+  ++  no-req-wake-wire
+    |=  rid=request-id:v1:n
+    ^-  wire
+    /notes/req/(scot %p ship.flag)/[name.flag]/(scot %uv rid)/wake
+  ::
   ++  no-abed
     |=  =flag:n
     ^+  no-core
@@ -1335,6 +1686,85 @@
         [ship.flag %notes]
         %poke
         notes-command+!>(cmd)
+    ==
+  ::
+  ::  +no-action-v1: subscribe to host's per-request path, poke host with
+  ::  the v1 command (carrying request-id), schedule a per-request behn
+  ::  timeout. The host's response-update will arrive on the watch wire,
+  ::  flow through +agent → +no-agent-req to finalize the request.
+  ::
+  ::  For self-hosted notebooks (ship.flag == our.bowl) this loops through
+  ::  Gall — uniform code path at the cost of one extra event hop.
+  ++  no-action-v1
+    |=  [rid=request-id:v1:n act=action:n]
+    ^+  no-core
+    ?>  ?=(%notebook -.act)
+    =/  cmd1=command:v1:n
+      [rid [%notebook flag.act (a-notebook-to-c-notebook a-notebook.act)]]
+    =.  no-core
+      %-  emit
+      :*  %pass  (no-req-watch-wire rid)
+          %agent  [ship.flag %notes]
+          %watch  (no-req-watch-path rid)
+      ==
+    =.  no-core
+      %-  emit
+      :*  %pass  (no-req-poke-wire rid)
+          %agent  [ship.flag %notes]
+          %poke  notes-command-1+!>(cmd1)
+      ==
+    %-  emit
+    [%pass (no-req-wake-wire rid) %arvo %b %wait (add now.bowl ~s20)]
+  ::
+  ::  +no-agent-req-watch: handle signs on /notes/req/<uv>/watch wire.
+  ::  watch-ack: nack finalizes %not-authorized. fact: response-update
+  ::  from host, transform to response and finalize.
+  ++  no-agent-req-watch
+    |=  [rid=request-id:v1:n =sign:agent:gall]
+    ^+  no-core
+    ?+  -.sign  no-core
+        %watch-ack
+      ?~  p.sign  no-core
+      =.  cor  (finalize-request rid [%error %not-authorized u.p.sign])
+      no-core
+    ::
+        %fact
+      ?.  =(p.cage.sign %notes-response-update-1)
+        no-core
+      =+  !<(ru=response-update:v1:n q.cage.sign)
+      =/  body=response-body:v1:n
+        ?-  -.body.ru
+          %no-change  [%no-change ~]
+          %ok         [%ok %update flag update.body.ru]
+          %error      [%error type.body.ru message.body.ru]
+        ==
+      =.  cor  (finalize-request rid body)
+      ::  leave the host watch — we got our terminal response
+      %-  emit
+      [%pass (no-req-watch-wire rid) %agent [ship.flag %notes] %leave ~]
+    ::
+        %kick
+      no-core
+    ==
+  ::
+  ::  +no-agent-req-poke: handle poke-ack on /notes/req/<uv>/poke wire.
+  ::  nack → finalize %unknown + leave host watch. ack → mark poke-status.
+  ++  no-agent-req-poke
+    |=  [rid=request-id:v1:n =sign:agent:gall]
+    ^+  no-core
+    ?+  -.sign  no-core
+        %poke-ack
+      ?~  p.sign
+        ?~  req=(~(get by requests) rid)  no-core
+        =.  requests
+          (~(put by requests) rid u.req(poke-status %acked))
+        no-core
+      =?  requests  ?=(^ (~(get by requests) rid))
+        =/  u  (~(got by requests) rid)
+        (~(put by requests) rid u(poke-status %nacked))
+      =.  cor  (finalize-request rid [%error %unknown u.p.sign])
+      %-  emit
+      [%pass (no-req-watch-wire rid) %agent [ship.flag %notes] %leave ~]
     ==
   ::
   ++  no-start-watch

@@ -18,6 +18,65 @@
   |=  a=action:n
   (do-poke %notes-action !>(a))
 ::
+::  +poke-a-v1: poke via %notes-action-1 with a request-id wrapped action
+++  poke-a-v1
+  |=  a=action:v1:n
+  (do-poke %notes-action-1 !>(a))
+::
+::  +poke-c-v1: poke via %notes-command-1 with a request-id wrapped command
+++  poke-c-v1
+  |=  c=command:v1:n
+  (do-poke %notes-command-1 !>(c))
+::
+::  Card introspection helpers. Hoon's `?=` narrowing on a $% card type
+::  doesn't propagate inner `=face` shorthand through the union, so we
+::  reach into the card by axis lark and compare raw nouns. (`;;` casts
+::  would also work but recursively clam vases — that single test takes
+::  ~90s, vs <1s with raw noun equality.)
+::
+::  Card layouts:
+::    [%give %fact paths cage]    fact gift: axis 14=paths, 30=mark, 31=vase
+::    [%pass wire %agent gill %watch path]   axis 6=wire, 63=path
+::    [%pass wire %agent gill %poke cage]    axis 6=wire, 62=mark, 63=vase
+::    [%pass wire %arvo vane task]           axis 6=wire
+::
+::  +has-fact-mark: any %give %fact card carries the given mark
+++  has-fact-mark
+  |=  [caz=(list card) m=mark]
+  ^-  ?
+  %+  lien  caz
+  |=  c=card
+  ?.  ?=([%give %fact * *] c)  |
+  =(-.+>+.c m)
+::
+::  +has-watch-on-path: any %pass %agent %watch card targets `pax`
+++  has-watch-on-path
+  |=  [caz=(list card) pax=path]
+  ^-  ?
+  %+  lien  caz
+  |=  c=card
+  ?.  ?=([%pass * %agent * %watch *] c)  |
+  =(+>+>+.c pax)
+::
+::  +has-poke-mark: any %pass %agent %poke card carries the given mark
+++  has-poke-mark
+  |=  [caz=(list card) m=mark]
+  ^-  ?
+  %+  lien  caz
+  |=  c=card
+  ?.  ?=([%pass * %agent * %poke *] c)  |
+  =(-.+>+>+.c m)
+::
+::  +has-wait-on-wire: any %pass %arvo %b %wait card on the given wire
+++  has-wait-on-wire
+  |=  [caz=(list card) wir=wire]
+  ^-  ?
+  %+  lien  caz
+  |=  c=card
+  ?.  ?=([%pass * %arvo %b %wait *] c)  |
+  =(+<.c wir)
+::
+::
 ::  +init-zod: init agent as ~zod; discard cards
 ++  init-zod
   =/  m  (mare ,~)
@@ -786,7 +845,7 @@
   ;<  ~  b  (ex-cards-ne caz)
   ::  invites map is now empty
   ;<  sv=vase  b  get-save
-  =/  s10-after=state-10:n  !<(state-10:n sv)
+  =/  s10-after=state-11:n  !<(state-11:n sv)
   |=  s=state
   ?.  =(~ invites.s10-after)
     |+['expected empty invites map after accept-invite']~
@@ -808,7 +867,7 @@
   =/  remote-flag=flag:n  [~bus `@tas`'5']
   ;<  *  b  (poke-a [%decline-invite remote-flag])
   ;<  sv=vase  b  get-save
-  =/  s10-after=state-10:n  !<(state-10:n sv)
+  =/  s10-after=state-11:n  !<(state-11:n sv)
   |=  s=state
   ?.  =(~ invites.s10-after)
     |+['expected empty invites map after decline-invite']~
@@ -845,8 +904,8 @@
     [%7 bks 2 ~ ~ inv hist]
   ;<  *  b  (do-load notes-agent `!>(s7))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
-  =/  s10=state-10:n  !<(state-10:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%11))
+  =/  s10=state-11:n  !<(state-11:n sv)
   ::  expected slug for [~zod '1'] with title 'S7-NB' nid=1 → 's7-nb-1'
   =/  new-f=flag:n  [~zod (slugify-test 'S7-NB' 1)]
   |=  s=state
@@ -874,7 +933,7 @@
   =/  s6=state-6:n  [%6 ~ 0 ~ ~ ~]
   ;<  *  b  (do-load notes-agent `!>(s6))
   ;<  sv=vase  b  get-save
-  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
+  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%11))
 ::
 ::  ====  test-migrate-state-6-preserves-notebook  ====
 ::  state-6 with one notebook migrates and the notebook is reachable.
@@ -920,7 +979,7 @@
   =/  s3=state-3:n  [%3 bks 2 ~]
   ;<  *  b  (do-load notes-agent `!>(s3))
   ;<  sv=vase  b  get-save
-  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
+  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%11))
 ::
 ::  ====  test-migrate-state-2-to-10  ====
 ::  state-2 published (bare @ud key) is dropped; published in state-10 is empty.
@@ -943,7 +1002,7 @@
     [%2 bks 2 (~(put by *(map @ud @t)) 1 '<h1>Old</h1>')]
   ;<  *  b  (do-load notes-agent `!>(s2))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%11))
   ;<  pub=cage  b  (got-peek /x/v0/published)
   ;<  ~  b  (ex-mark pub %notes-published)
   |=  s=state
@@ -971,7 +1030,7 @@
   =/  s1=state-1:n  [%1 bks 2]
   ;<  *  b  (do-load notes-agent `!>(s1))
   ;<  sv=vase  b  get-save
-  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
+  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%11))
 ::
 ::  ====  test-migrate-state-4-backfills-updated-by  ====
 ::  state-4: notebook and folders lack updated-by; migration backfills from created-by.
@@ -1004,8 +1063,8 @@
   =/  s4=state-4:n  [%4 bks 4 ~ ~]
   ;<  *  b  (do-load notes-agent `!>(s4))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
-  =/  s10=state-10:n  !<(state-10:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%11))
+  =/  s10=state-11:n  !<(state-11:n sv)
   =/  new-f=flag:n  [~zod (slugify-test 'S4-NB' 1)]
   =/  entry=[=net:n =notebook-state:n]  (~(got by books.s10) new-f)
   =/  migrated-nb-s=notebook-state:n  notebook-state.entry
@@ -1055,8 +1114,8 @@
   =/  s8=state-8:n  [%8 bks 2 ~ vis-map ~ hist-map]
   ;<  *  b  (do-load notes-agent `!>(s8))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
-  =/  s10=state-10:n  !<(state-10:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%11))
+  =/  s10=state-11:n  !<(state-11:n sv)
   =/  new-f=flag:n  [~zod (slugify-test 'S8-NB' 1)]
   =/  entry=[=net:n =notebook-state:n]  (~(got by books.s10) new-f)
   |=  s=state
@@ -1366,8 +1425,8 @@
   =/  s9=state-9:n  [%9 bks 23 pub-map ~]
   ;<  *  b  (do-load notes-agent `!>(s9))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
-  =/  s10=state-10:n  !<(state-10:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%11))
+  =/  s10=state-11:n  !<(state-11:n sv)
   ::  expected new flags after slugify
   =/  new-fl-local=flag:n   [~zod (slugify-test 'My First' 11)]
   =/  new-fl-remote=flag:n  [~bus (slugify-test 'Bar Book' 22)]
@@ -1383,6 +1442,111 @@
   ::  old flags must be gone
   ?.  !(~(has by books.s10) [~zod `@tas`'11'])
     |+['expected old flag-v9 key gone after 9→10 migration']~
+  &+[~ s]
+::
+::  ====  v1 / request-id surface tests  ====================================
+::
+::  ====  test-v1-create-notebook-finalizes  ====
+::  Top-level v1 action: poke notes-action-1 with %create-notebook. After the
+::  poke we expect (a) the notebook to exist and (b) the requests map to hold
+::  a terminal entry keyed by our request-id.
+++  test-v1-create-notebook-finalizes
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  =/  rid=request-id:v1:n  0v1
+  ;<  caz=(list card)  b  (poke-a-v1 [rid [%create-notebook 'V1 NB']])
+  ;<  ~  b  (ex-cards-ne caz)
+  ;<  sv=vase  b  get-save
+  =/  s=state-11:n  !<(state-11:n sv)
+  |=  s2=state
+  ?~  req=(~(get by requests.s) rid)
+    |+['expected requests entry after v1 poke']~
+  ?~  result.u.req
+    |+['expected result on terminal request']~
+  ?.  ?=(%no-change -.u.result.u.req)
+    |+~[(crip "expected %no-change result, got {<-.u.result.u.req>}")]
+  ?~  final-at.u.req
+    |+['expected final-at set on terminal request']~
+  =/  f=flag:n  (nb-flag our.bowl 'V1 NB' 1)
+  ?.  (~(has by books.s) f)
+    |+['expected notebook to be created via v1 poke']~
+  &+[~ s2]
+::
+::  ====  test-v1-notebook-action-emits-cards  ====
+::  Notebook-scoped v1 action routes through no-action-v1: must emit a host
+::  %watch on the per-request path, a %poke with notes-command-1, and a behn
+::  %wait for the per-request timeout.
+++  test-v1-notebook-action-emits-cards
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  *  b  (poke-a [%create-notebook 'V1 Cards'])
+  =/  f=flag:n  (nb-flag our.bowl 'V1 Cards' 1)
+  =/  rid=request-id:v1:n  0v2
+  ;<  caz=(list card)  b
+    (poke-a-v1 [rid [%notebook f [%create-note 2 'V1 Note' 'body']]])
+  |=  s=state
+  =/  exp-watch-path=path
+    :+  %v1  %notes
+    /(scot %p ship.f)/[name.f]/request/(scot %p our.bowl)/(scot %uv rid)
+  =/  exp-wait-wire=wire
+    /notes/req/(scot %p ship.f)/[name.f]/(scot %uv rid)/wake
+  ?.  (has-watch-on-path caz exp-watch-path)
+    |+~[(crip "v1: missing watch card on {<exp-watch-path>}")]
+  ?.  (has-poke-mark caz %notes-command-1)
+    |+['v1: missing %notes-command-1 poke card']~
+  ?.  (has-wait-on-wire caz exp-wait-wire)
+    |+~[(crip "v1: missing behn wait on {<exp-wait-wire>}")]
+  &+[~ s]
+::
+::  ====  test-v1-command-emits-response-update-fact  ====
+::  Host-side: poke notes-command-1 from owner; expect se-emit-final-response
+::  to give a %fact with mark notes-response-update-1. (Path scoping by src
+::  is covered in app code, not asserted here — keeps the test resilient to
+::  internal path tweaks.)
+++  test-v1-command-emits-response-update-fact
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  *  b  (poke-a [%create-notebook 'V1 Cmd'])
+  =/  f=flag:n  (nb-flag our.bowl 'V1 Cmd' 1)
+  =/  rid=request-id:v1:n  0v3
+  ;<  caz=(list card)  b
+    (poke-c-v1 [rid [%notebook f [%create-note 2 'V1 Note' 'b']]])
+  |=  s=state
+  ?.  (has-fact-mark caz %notes-response-update-1)
+    |+['v1: missing notes-response-update-1 fact after command']~
+  &+[~ s]
+::
+::  ====  test-v1-action-json-decode  ====
+::  Parse a JSON v1 action and assert request-id + nested a-notes decode.
+++  test-v1-action-json-decode
+  %-  eval-mare
+  =/  m  (mare ,~)
+  ^-  form:m
+  |=  s=state
+  =/  src=@t
+    '{"requestId":"0v1","action":{"type":"create-notebook","title":"From JSON"}}'
+  =/  jon=(unit json)  (de:json:html src)
+  ?~  jon
+    |+['failed to parse json source']~
+  =/  act=action:v1:n  (action:v1:dejs:notes-json u.jon)
+  ?.  =(request-id.act 0v1)
+    |+~[(crip "expected request-id 0v1, got {<request-id.act>}")]
+  ?.  ?=(%create-notebook -.a-notes.act)
+    |+['expected %create-notebook a-notes tag']~
+  ?.  =(title.a-notes.act 'From JSON')
+    |+['expected title preserved through v1 json decode']~
   &+[~ s]
 ::
 ::  ====  JSON encoder tests  ===============================================
