@@ -341,9 +341,24 @@
 ::  Versioned state — newest first
 ::  ============================================================
 ::
+::  state-13: adds rid-counter so synthesized request-ids (the legacy
+::  %notes-action poke arm + any other callers without a client-side
+::  uv generator) are guaranteed unique across pokes within an event
+::  budget that doesn't advance bowl.eny — i.e., test-agent.
++$  state-13
+  $:  %13
+      books=(map flag [=net =notebook-state])
+      next-id=@ud
+      published=(map [=flag note-id=@ud] @t)
+      invites=(map flag invite-info)
+      requests=requests:v1
+      api-key=(unit @t)
+      rid-counter=@ud
+  ==
+::
++$  state  state-13
+::
 ::  state-12: adds api-key for the X-Api-Key HTTP auth bypass.
-::  ~ means the bypass is disabled — only eyre-authenticated requests
-::  pass the v1 dispatch gate.
 +$  state-12
   $:  %12
       books=(map flag [=net =notebook-state])
@@ -353,8 +368,6 @@
       requests=requests:v1
       api-key=(unit @t)
   ==
-::
-+$  state  state-12
 ::
 ::  state-11: adds requests map for HTTP / request-id correlation
 +$  state-11

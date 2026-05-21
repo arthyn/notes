@@ -321,7 +321,7 @@
   ;<  *  b  (poke-a [%notebook f [%visibility %public]])
   ;<  *  b  (set-src ~bus)
   ;<  caz=(list card)  b
-    (do-poke %notes-command !>(`command:n`[%notebook f [%member-join ~]]))
+    (do-poke %notes-command-1 !>(`command:v1:n`[`@uv`0v1 [%notebook f [%member-join ~]]]))
   ;<  ~  b  (ex-cards-ne caz)
   ;<  *  b  (set-src our.bowl)
   ;<  mbrs=cage  b  (peek-mbrs f)
@@ -860,7 +860,7 @@
   ;<  ~  b  (ex-cards-ne caz)
   ::  invites map is now empty
   ;<  sv=vase  b  get-save
-  =/  s10-after=state-12:n  !<(state-12:n sv)
+  =/  s10-after=state-13:n  !<(state-13:n sv)
   |=  s=state
   ?.  =(~ invites.s10-after)
     |+['expected empty invites map after accept-invite']~
@@ -882,7 +882,7 @@
   =/  remote-flag=flag:n  [~bus `@tas`'5']
   ;<  *  b  (poke-a [%decline-invite remote-flag])
   ;<  sv=vase  b  get-save
-  =/  s10-after=state-12:n  !<(state-12:n sv)
+  =/  s10-after=state-13:n  !<(state-13:n sv)
   |=  s=state
   ?.  =(~ invites.s10-after)
     |+['expected empty invites map after decline-invite']~
@@ -919,8 +919,8 @@
     [%7 bks 2 ~ ~ inv hist]
   ;<  *  b  (do-load notes-agent `!>(s7))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%12))
-  =/  s10=state-12:n  !<(state-12:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
+  =/  s10=state-13:n  !<(state-13:n sv)
   ::  expected slug for [~zod '1'] with title 'S7-NB' nid=1 → 's7-nb-1'
   =/  new-f=flag:n  [~zod (slugify-test 'S7-NB' 1)]
   |=  s=state
@@ -948,7 +948,7 @@
   =/  s6=state-6:n  [%6 ~ 0 ~ ~ ~]
   ;<  *  b  (do-load notes-agent `!>(s6))
   ;<  sv=vase  b  get-save
-  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%12))
+  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
 ::
 ::  ====  test-migrate-state-6-preserves-notebook  ====
 ::  state-6 with one notebook migrates and the notebook is reachable.
@@ -994,7 +994,7 @@
   =/  s3=state-3:n  [%3 bks 2 ~]
   ;<  *  b  (do-load notes-agent `!>(s3))
   ;<  sv=vase  b  get-save
-  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%12))
+  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
 ::
 ::  ====  test-migrate-state-2-to-10  ====
 ::  state-2 published (bare @ud key) is dropped; published in state-10 is empty.
@@ -1017,7 +1017,7 @@
     [%2 bks 2 (~(put by *(map @ud @t)) 1 '<h1>Old</h1>')]
   ;<  *  b  (do-load notes-agent `!>(s2))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%12))
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
   ;<  pub=cage  b  (got-peek /x/v0/published)
   ;<  ~  b  (ex-mark pub %notes-published)
   |=  s=state
@@ -1045,7 +1045,7 @@
   =/  s1=state-1:n  [%1 bks 2]
   ;<  *  b  (do-load notes-agent `!>(s1))
   ;<  sv=vase  b  get-save
-  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%12))
+  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
 ::
 ::  ====  test-migrate-state-4-backfills-updated-by  ====
 ::  state-4: notebook and folders lack updated-by; migration backfills from created-by.
@@ -1078,8 +1078,8 @@
   =/  s4=state-4:n  [%4 bks 4 ~ ~]
   ;<  *  b  (do-load notes-agent `!>(s4))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%12))
-  =/  s10=state-12:n  !<(state-12:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
+  =/  s10=state-13:n  !<(state-13:n sv)
   =/  new-f=flag:n  [~zod (slugify-test 'S4-NB' 1)]
   =/  entry=[=net:n =notebook-state:n]  (~(got by books.s10) new-f)
   =/  migrated-nb-s=notebook-state:n  notebook-state.entry
@@ -1129,8 +1129,8 @@
   =/  s8=state-8:n  [%8 bks 2 ~ vis-map ~ hist-map]
   ;<  *  b  (do-load notes-agent `!>(s8))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%12))
-  =/  s10=state-12:n  !<(state-12:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
+  =/  s10=state-13:n  !<(state-13:n sv)
   =/  new-f=flag:n  [~zod (slugify-test 'S8-NB' 1)]
   =/  entry=[=net:n =notebook-state:n]  (~(got by books.s10) new-f)
   |=  s=state
@@ -1440,8 +1440,8 @@
   =/  s9=state-9:n  [%9 bks 23 pub-map ~]
   ;<  *  b  (do-load notes-agent `!>(s9))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%12))
-  =/  s10=state-12:n  !<(state-12:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
+  =/  s10=state-13:n  !<(state-13:n sv)
   ::  expected new flags after slugify
   =/  new-fl-local=flag:n   [~zod (slugify-test 'My First' 11)]
   =/  new-fl-remote=flag:n  [~bus (slugify-test 'Bar Book' 22)]
@@ -1476,7 +1476,7 @@
   ;<  caz=(list card)  b  (poke-a-v1 [rid [%create-notebook 'V1 NB']])
   ;<  ~  b  (ex-cards-ne caz)
   ;<  sv=vase  b  get-save
-  =/  s=state-12:n  !<(state-12:n sv)
+  =/  s=state-13:n  !<(state-13:n sv)
   |=  s2=state
   ?~  req=(~(get by requests.s) rid)
     |+['expected requests entry after v1 poke']~
@@ -1575,7 +1575,7 @@
   ^-  form:m
   ;<  ~  b  init-zod
   ;<  sv=vase  b  get-save
-  =/  s=state-12:n  !<(state-12:n sv)
+  =/  s=state-13:n  !<(state-13:n sv)
   |=  s2=state
   ?~  api-key.s
     |+['expected api-key generated on init']~
@@ -1590,13 +1590,13 @@
   ^-  form:m
   ;<  ~  b  init-zod
   ;<  sv1=vase  b  get-save
-  =/  s1=state-12:n  !<(state-12:n sv1)
+  =/  s1=state-13:n  !<(state-13:n sv1)
   =/  old-key=(unit @t)  api-key.s1
   ::  bump eny so the new key differs deterministically
   ;<  ~  b  (jab-bowl |=(=bowl bowl(eny ^~((shaz 'regen-test')))))
   ;<  *  b  (poke-a-v1 [0v1.aaaaa [%regenerate-api-key ~]])
   ;<  sv2=vase  b  get-save
-  =/  s2=state-12:n  !<(state-12:n sv2)
+  =/  s2=state-13:n  !<(state-13:n sv2)
   |=  s3=state
   ?~  old-key
     |+['no api-key after init']~
@@ -1615,7 +1615,7 @@
   ;<  ~  b  init-zod
   ;<  *  b  (poke-a-v1 [0v1.aaaaa [%clear-api-key ~]])
   ;<  sv=vase  b  get-save
-  =/  s=state-12:n  !<(state-12:n sv)
+  =/  s=state-13:n  !<(state-13:n sv)
   |=  s2=state
   ?^  api-key.s
     |+['expected api-key cleared']~
@@ -1632,14 +1632,14 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  sv1=vase  b  get-save
-  =/  s1=state-12:n  !<(state-12:n sv1)
+  =/  s1=state-13:n  !<(state-13:n sv1)
   =/  maybe-key=(unit @t)  api-key.s1
   =/  key=@t  ?~(maybe-key '' u.maybe-key)
   =/  body=@t  '{"requestId":"0v9.aaaaa","action":{"type":"create-notebook","title":"VKey"}}'
   ;<  caz=(list card)  b  (http-post-v1 ~[['x-api-key' key]] body)
   =/  f=flag:n  (nb-flag our.bowl 'VKey' 1)
   ;<  sv2=vase  b  get-save
-  =/  s2=state-12:n  !<(state-12:n sv2)
+  =/  s2=state-13:n  !<(state-13:n sv2)
   |=  s3=state
   ?~  maybe-key
     |+['no api-key after init']~
@@ -1665,7 +1665,7 @@
   ;<  *  b  (http-post-v1 ~[['x-api-key' 'definitely-not-the-key']] body)
   =/  f=flag:n  (nb-flag our.bowl 'WrongKey' 1)
   ;<  sv=vase  b  get-save
-  =/  s=state-12:n  !<(state-12:n sv)
+  =/  s=state-13:n  !<(state-13:n sv)
   |=  s2=state
   ?:  (~(has by books.s) f)
     |+['unauthorized request created a notebook']~
