@@ -105,6 +105,11 @@
       [%accept-invite =flag]
       [%decline-invite =flag]
       [%notebook =flag =a-notebook]
+      ::  api-key management — local-only (?> =(our.bowl src.bowl) at the
+      ::  poke handler). Regenerate replaces the stored key; clear erases
+      ::  it (disabling the X-Api-Key bypass).
+      [%regenerate-api-key ~]
+      [%clear-api-key ~]
   ==
 ::
 ::  $a-notebook: actions scoped to a specific notebook.
@@ -336,6 +341,21 @@
 ::  Versioned state — newest first
 ::  ============================================================
 ::
+::  state-12: adds api-key for the X-Api-Key HTTP auth bypass.
+::  ~ means the bypass is disabled — only eyre-authenticated requests
+::  pass the v1 dispatch gate.
++$  state-12
+  $:  %12
+      books=(map flag [=net =notebook-state])
+      next-id=@ud
+      published=(map [=flag note-id=@ud] @t)
+      invites=(map flag invite-info)
+      requests=requests:v1
+      api-key=(unit @t)
+  ==
+::
++$  state  state-12
+::
 ::  state-11: adds requests map for HTTP / request-id correlation
 +$  state-11
   $:  %11
@@ -345,8 +365,6 @@
       invites=(map flag invite-info)
       requests=requests:v1
   ==
-::
-+$  state  state-11
 ::
 ::  state-10: flag.name tightened to @tas slug (no requests map)
 +$  state-10

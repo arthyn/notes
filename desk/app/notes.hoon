@@ -8,7 +8,7 @@
 ::
 |%
 +$  card  card:agent:gall
-+$  current-state  state-11:n
++$  current-state  state-12:n
 --
 ::
 =|  current-state
@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'serve-openapi-json'
+++  dummy  'x-api-key-state-12'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -88,6 +88,9 @@
 ::
 ++  init
   ^+  cor
+  ::  mint an api-key on fresh install. Operators can rotate via the
+  ::  %regenerate-api-key action; %clear-api-key disables the bypass.
+  =.  api-key  `(scot %uv eny.bowl)
   %-  emil
   :~  [%pass /eyre/notes %arvo %e %connect [~ /notes] %notes]
       [%pass /cleanup/requests %arvo %b %wait (add now.bowl ~m5)]
@@ -110,15 +113,21 @@
   =?  old  ?=(%8 -.old)  (state-8-to-9 old)
   =?  old  ?=(%9 -.old)  (state-9-to-10 old)
   =?  old  ?=(%10 -.old)  (state-10-to-11 old)
-  ?>  ?=(%11 -.old)
+  =?  old  ?=(%11 -.old)  (state-11-to-12 old)
+  ?>  ?=(%12 -.old)
   =.  state  old
+  ::  ships migrating from state-11 land here with api-key=~; mint one
+  ::  so the bypass is usable out of the box. Operators can rotate or
+  ::  clear afterward.
+  =?  api-key.state  ?=(~ api-key.state)  `(scot %uv eny.bowl)
   ::  start request cleanup timer (idempotent: stacking timers is fine,
   ::  each cleanup pass is a no-op on an empty/clean requests map)
   %-  emit
   [%pass /cleanup/requests %arvo %b %wait (add now.bowl ~m5)]
   ::
   +$  any-state
-    $%  state-11:n
+    $%  state-12:n
+        state-11:n
         state-10:n
         state-9:n
         state-8:n
@@ -257,6 +266,12 @@
     |=  s=state-10:n
     ^-  state-11:n
     [%11 books.s next-id.s published.s invites.s ~]
+  ::
+  ++  state-11-to-12
+    ~>  %spin.['state-11-to-12']
+    |=  s=state-11:n
+    ^-  state-12:n
+    [%12 books.s next-id.s published.s invites.s requests.s ~]
   --
 ::
 ++  poke
@@ -276,11 +291,13 @@
     ::  switchable top-level cases first; %notebook (notebook-scoped) is meaty
     ?.  ?=(%notebook -.act)
       ?-  -.act
-        %create-notebook  se-abet:(se-create-notebook:(se-init:se-core act) act)
-        %join             (join-remote flag.act)
-        %leave            (leave-remote flag.act)
-        %accept-invite    (handle-accept-invite flag.act)
-        %decline-invite   (handle-decline-invite flag.act)
+        %create-notebook     se-abet:(se-create-notebook:(se-init:se-core act) act)
+        %join                (join-remote flag.act)
+        %leave               (leave-remote flag.act)
+        %accept-invite       (handle-accept-invite flag.act)
+        %decline-invite      (handle-decline-invite flag.act)
+        %regenerate-api-key  cor(api-key `(scot %uv eny.bowl))
+        %clear-api-key       cor(api-key ~)
       ==
     ::  notebook-scoped: [%notebook =flag =a-notebook]
     =/  =flag:n  flag.act
@@ -327,47 +344,12 @@
     ==
   ::
       %notes-action-1
-    ::  v1 action — carries request-id. Local UI / HTTP API origin.
+    ::  Cross-agent / internal poke entry. HTTP POST goes directly to
+    ::  +handle-v1-post which checks auth (eyre cookie OR X-Api-Key) and
+    ::  invokes +dispatch-v1-action without the src.bowl guard.
     ?>  =(our.bowl src.bowl)
     =+  !<(act=action:v1:n vase)
-    =/  rid  request-id.act
-    =/  a-act  a-notes.act
-    =.  cor  (register-request rid ~)
-    ?.  ?=(%notebook -.a-act)
-      ::  top-level actions: handle locally, finalize %no-change synchronously.
-      ::  (Future: %ok with snapshot for %create-notebook etc.)
-      =.  cor
-        ?-  -.a-act
-          %create-notebook  se-abet:(se-create-notebook:(se-init:se-core a-act) a-act)
-          %join             (join-remote flag.a-act)
-          %leave            (leave-remote flag.a-act)
-          %accept-invite    (handle-accept-invite flag.a-act)
-          %decline-invite   (handle-decline-invite flag.a-act)
-        ==
-      (finalize-request rid [%no-change ~])
-    ::  notebook-scoped — route through no-action-v1 for cross-ship lifecycle.
-    =/  =flag:n  flag.a-act
-    ?+    -.a-notebook.a-act
-        no-abet:(no-action-v1:(no-abed:no-core flag) rid a-act)
-    ::
-        %invite
-      =.  cor  (handle-send-invite flag who.a-notebook.a-act)
-      (finalize-request rid [%no-change ~])
-    ::
-        %note
-      =*  n-act  a-note.a-notebook.a-act
-      ?+    -.n-act
-          no-abet:(no-action-v1:(no-abed:no-core flag) rid a-act)
-      ::
-          %publish
-        =.  cor  no-abet:(no-publish:(no-abed:no-core flag) id.a-notebook.a-act html.n-act)
-        (finalize-request rid [%no-change ~])
-      ::
-          %unpublish
-        =.  cor  no-abet:(no-unpublish:(no-abed:no-core flag) id.a-notebook.a-act)
-        (finalize-request rid [%no-change ~])
-      ==
-    ==
+    (dispatch-v1-action act)
   ::
       %notes-command-1
     ::  v1 cross-ship command — wraps c-notes with a request-id.
@@ -386,91 +368,9 @@
     ==
   ==
   ::
-  ::  +join-remote: initiate joining a notebook on a remote ship
-  ++  join-remote
-    |=  =flag:n
-    ^+  cor
-    ?<  =(our.bowl ship.flag)
-    ?<  (~(has by books) flag)
-    =/  placeholder-net=net:n  [%sub *@da |]
-    =/  =notebook:n
-      [0 '' ship.flag *@da *@da ship.flag]
-    =/  placeholder-nb-state=notebook-state:n
-      [notebook ~ %private ~ ~ ~]
-    =.  books
-      (~(put by books) flag [placeholder-net placeholder-nb-state])
-    ::  send %member-join command to host (wrapped in c-notes %notebook arm)
-    %-  emit
-    :+  %pass
-      /notes/join/(scot %p ship.flag)/[name.flag]
-    [%agent [ship.flag %notes] %poke notes-command+!>(`command:n`[%notebook flag [%member-join ~]])]
-  ::
-  ::  +leave-remote: leave a notebook on a remote ship.
-  ::  Tells the host to drop us from members BEFORE cancelling the watch
-  ::  so the host's `members.notebook-state` reflects reality.
-  ++  leave-remote
-    |=  =flag:n
-    ^+  cor
-    ?>  (~(has by books) flag)
-    =.  cor
-      %-  emit
-      :+  %pass
-        /notes/leave/(scot %p ship.flag)/[name.flag]
-      [%agent [ship.flag %notes] %poke notes-command+!>(`command:n`[%notebook flag [%member-leave ~]])]
-    no-abet:no-leave:(no-abed:no-core flag)
-  ::
-  ::  +handle-send-invite: owner-only, fired locally. Pre-add the target ship
-  ::  to the notebook's member list and notify their %notes agent.
-  ++  handle-send-invite
-    |=  [=flag:n who=ship]
-    ^+  cor
-    ?>  =(ship.flag our.bowl)
-    =/  entry=[* =notebook-state:n]
-      (~(got by books) flag)
-    ::  pre-add via se-core (also enforces ownership)
-    =.  cor
-      =/  cmd=c-cmd:n  [flag [%invite who]]
-      se-abet:(se-poke:(se-abed:se-core flag) cmd)
-    ::  Poke the invitee's notes agent with %notify-invite as a c-notes
-    ::  command — actions are local-only (src must equal our), so cross-
-    ::  ship invite delivery flows through the command surface. The arm
-    ::  carries the notebook title so the inbox can render it pre-join.
-    %-  emit
-    :+  %pass
-      /notes/invite/(scot %p who)/(scot %p ship.flag)/[name.flag]
-    [%agent [who %notes] %poke notes-command+!>(`command:n`[%notify-invite flag title.notebook.notebook-state.entry])]
-  ::
-  ::  +handle-notify-invite: called when a remote host pokes us with
-  ::  [%notify-invite flag title]. The sender must be the notebook host.
-  ++  handle-notify-invite
-    |=  [=flag:n title=@t from=ship]
-    ^+  cor
-    ?<  =(from our.bowl)
-    ?>  =(from ship.flag)
-    ?:  (~(has by books) flag)  cor
-    ?:  (~(has by invites) flag)  cor
-    =/  info=invite-info:n  [from now.bowl title]
-    =.  invites  (~(put by invites) flag info)
-    (give-inbox-received flag from now.bowl title)
-  ::
-  ::  +handle-accept-invite: user accepted a pending invite
-  ++  handle-accept-invite
-    |=  =flag:n
-    ^+  cor
-    ?>  =(src.bowl our.bowl)
-    =.  invites  (~(del by invites) flag)
-    =.  cor  (give-inbox-removed flag)
-    ?:  (~(has by books) flag)  cor
-    (join-remote flag)
-  ::
-  ::  +handle-decline-invite: user declined a pending invite
-  ++  handle-decline-invite
-    |=  =flag:n
-    ^+  cor
-    ?>  =(src.bowl our.bowl)
-    ?.  (~(has by invites) flag)  cor
-    =.  invites  (~(del by invites) flag)
-    (give-inbox-removed flag)
+  ::  no |^ arms remain — the invite/join helpers used to live here but
+  ::  moved to the top level so +dispatch-v1-action (called by both this
+  ::  arm and +handle-v1-post) can reach them.
   --
 ::
 ::  +serve-http: dispatch an HTTP request to the right responder.
@@ -555,6 +455,8 @@
 ++  handle-v1-post
   |=  [eyre-id=@ta =inbound-request:eyre]
   ^+  cor
+  ?.  (request-authorized inbound-request)
+    (http-error eyre-id 401 'unauthorized')
   ?~  body.request.inbound-request
     (http-error eyre-id 400 'missing body')
   =/  body-cord=@t  q.u.body.request.inbound-request
@@ -566,8 +468,11 @@
   =.  requests
     %+  ~(put by requests)  rid
     [rid `eyre-id %sending ~ ~ |]
-  ::  dispatch through the same code path as %notes-action-1 poke
-  (poke %notes-action-1 !>(action))
+  ::  dispatch directly — auth already verified above; skipping the
+  ::  +poke %notes-action-1 arm's src.bowl gate, which would reject
+  ::  the request when eyre delivered it unauthenticated and we let it
+  ::  through on a valid X-Api-Key.
+  (dispatch-v1-action action)
 ::
 ::  +handle-v1-get-request: respond with the current state of a request.
 ::  Path remainder is the @uv id. If the request has a terminal result,
@@ -664,6 +569,12 @@
     ::  /x/debug/dummy — current ++dummy value for tooling readiness checks
       [%x %debug %dummy ~]
     ``json+!>(s+dummy)
+    ::  /x/v0/api-key — current X-Api-Key value as a JSON string, or null
+    ::  if cleared. Gated to the local user; never leaks to remote callers.
+      [%x %v0 %api-key ~]
+    ?.  =(src.bowl our.bowl)  ~
+    =/  jon=json  ?~(api-key ~ s+u.api-key)
+    ``json+!>(jon)
     ::  /x/v0/<kind>/<ship>/<name>[/<rest>] — delegate to no-peek
       [%x %v0 kind=@ ship=@ name=@ rest=*]
     =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
@@ -988,6 +899,159 @@
   ^+  cor
   %-  give
   [%fact [/v0/inbox/stream]~ notes-inbox-update+!>(`u-inbox:n`[%invite-removed flag])]
+::
+::  ====  Invite / join handlers (moved out of +poke's |^ so dispatch-v1-action
+::        and the v0 %notes-action poke arm share one implementation)  ====
+::
+::  +join-remote: initiate joining a notebook on a remote ship
+++  join-remote
+  |=  =flag:n
+  ^+  cor
+  ?<  =(our.bowl ship.flag)
+  ?<  (~(has by books) flag)
+  =/  placeholder-net=net:n  [%sub *@da |]
+  =/  =notebook:n
+    [0 '' ship.flag *@da *@da ship.flag]
+  =/  placeholder-nb-state=notebook-state:n
+    [notebook ~ %private ~ ~ ~]
+  =.  books
+    (~(put by books) flag [placeholder-net placeholder-nb-state])
+  %-  emit
+  :+  %pass
+    /notes/join/(scot %p ship.flag)/[name.flag]
+  [%agent [ship.flag %notes] %poke notes-command+!>(`command:n`[%notebook flag [%member-join ~]])]
+::
+::  +leave-remote: leave a notebook on a remote ship. Tells the host to
+::  drop us from members BEFORE cancelling the watch so the host's
+::  `members.notebook-state` reflects reality.
+++  leave-remote
+  |=  =flag:n
+  ^+  cor
+  ?>  (~(has by books) flag)
+  =.  cor
+    %-  emit
+    :+  %pass
+      /notes/leave/(scot %p ship.flag)/[name.flag]
+    [%agent [ship.flag %notes] %poke notes-command+!>(`command:n`[%notebook flag [%member-leave ~]])]
+  no-abet:no-leave:(no-abed:no-core flag)
+::
+::  +handle-send-invite: owner-only, fired locally. Pre-add the target ship
+::  to the notebook's member list and notify their %notes agent.
+++  handle-send-invite
+  |=  [=flag:n who=ship]
+  ^+  cor
+  ?>  =(ship.flag our.bowl)
+  =/  entry=[* =notebook-state:n]
+    (~(got by books) flag)
+  =.  cor
+    =/  cmd=c-cmd:n  [flag [%invite who]]
+    se-abet:(se-poke:(se-abed:se-core flag) cmd)
+  %-  emit
+  :+  %pass
+    /notes/invite/(scot %p who)/(scot %p ship.flag)/[name.flag]
+  [%agent [who %notes] %poke notes-command+!>(`command:n`[%notify-invite flag title.notebook.notebook-state.entry])]
+::
+::  +handle-notify-invite: called when a remote host pokes us with
+::  [%notify-invite flag title]. The sender must be the notebook host.
+++  handle-notify-invite
+  |=  [=flag:n title=@t from=ship]
+  ^+  cor
+  ?<  =(from our.bowl)
+  ?>  =(from ship.flag)
+  ?:  (~(has by books) flag)  cor
+  ?:  (~(has by invites) flag)  cor
+  =/  info=invite-info:n  [from now.bowl title]
+  =.  invites  (~(put by invites) flag info)
+  (give-inbox-received flag from now.bowl title)
+::
+::  +handle-accept-invite: user accepted a pending invite
+++  handle-accept-invite
+  |=  =flag:n
+  ^+  cor
+  ?>  =(src.bowl our.bowl)
+  =.  invites  (~(del by invites) flag)
+  =.  cor  (give-inbox-removed flag)
+  ?:  (~(has by books) flag)  cor
+  (join-remote flag)
+::
+::  +handle-decline-invite: user declined a pending invite
+++  handle-decline-invite
+  |=  =flag:n
+  ^+  cor
+  ?>  =(src.bowl our.bowl)
+  ?.  (~(has by invites) flag)  cor
+  =.  invites  (~(del by invites) flag)
+  (give-inbox-removed flag)
+::
+::  ====  v1 action dispatch + HTTP auth helpers  ====
+::
+::  +get-api-key-header: case-insensitive lookup of x-api-key in the
+::  inbound HTTP request headers. Returns ~ if absent.
+++  get-api-key-header
+  |=  req=inbound-request:eyre
+  ^-  (unit @t)
+  =/  hdrs=(list [key=@t value=@t])  header-list.request.req
+  |-  ^-  (unit @t)
+  ?~  hdrs  ~
+  ?:  =((cass (trip key.i.hdrs)) "x-api-key")  `value.i.hdrs
+  $(hdrs t.hdrs)
+::
+::  +request-authorized: an HTTP request passes the v1 auth gate when
+::  eyre already validated the session cookie OR when the X-Api-Key
+::  header matches the stored key.
+++  request-authorized
+  |=  req=inbound-request:eyre
+  ^-  ?
+  ?:  authenticated.req  &
+  ?~  api-key  |
+  =/  hdr=(unit @t)  (get-api-key-header req)
+  ?~  hdr  |
+  =(u.hdr u.api-key)
+::
+::  +dispatch-v1-action: top-level v1 action routing. Used by both
+::  +poke %notes-action-1 (after src.bowl gate) and +handle-v1-post
+::  (after eyre-or-api-key gate). Registers the request, runs the
+::  action, finalizes %no-change for local synchronous arms.
+++  dispatch-v1-action
+  |=  act=action:v1:n
+  ^+  cor
+  =/  rid  request-id.act
+  =/  a-act  a-notes.act
+  =.  cor  (register-request rid ~)
+  ?.  ?=(%notebook -.a-act)
+    =.  cor
+      ?-  -.a-act
+        %create-notebook     se-abet:(se-create-notebook:(se-init:se-core a-act) a-act)
+        %join                (join-remote flag.a-act)
+        %leave               (leave-remote flag.a-act)
+        %accept-invite       (handle-accept-invite flag.a-act)
+        %decline-invite      (handle-decline-invite flag.a-act)
+        %regenerate-api-key  cor(api-key `(scot %uv eny.bowl))
+        %clear-api-key       cor(api-key ~)
+      ==
+    (finalize-request rid [%no-change ~])
+  =/  =flag:n  flag.a-act
+  ?+    -.a-notebook.a-act
+      no-abet:(no-action-v1:(no-abed:no-core flag) rid a-act)
+  ::
+      %invite
+    =.  cor  (handle-send-invite flag who.a-notebook.a-act)
+    (finalize-request rid [%no-change ~])
+  ::
+      %note
+    =*  n-act  a-note.a-notebook.a-act
+    ?+    -.n-act
+        no-abet:(no-action-v1:(no-abed:no-core flag) rid a-act)
+    ::
+        %publish
+      =.  cor  no-abet:(no-publish:(no-abed:no-core flag) id.a-notebook.a-act html.n-act)
+      (finalize-request rid [%no-change ~])
+    ::
+        %unpublish
+      =.  cor  no-abet:(no-unpublish:(no-abed:no-core flag) id.a-notebook.a-act)
+      (finalize-request rid [%no-change ~])
+    ==
+  ==
 ::
 ::  ====  se-core: server/host core  ====
 ::
