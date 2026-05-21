@@ -2,8 +2,9 @@
 ::
 /-  n=notes
 /+  default-agent, dbug, verb, notes-json
-/=  ui           /lib/notes-ui
-/=  share-page   /lib/notes-share
+/=  ui            /lib/notes-ui
+/=  share-page    /lib/notes-share
+/=  openapi-spec  /lib/notes-openapi
 ::
 |%
 +$  card  card:agent:gall
@@ -78,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'fe-on-http-api-v1'
+++  dummy  'serve-openapi-json'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -480,6 +481,17 @@
   =/  url-tape=tape  (trip url.request.inbound-request)
   =/  url-path=tape  (strip-query url-tape)
   =/  method=@tas  method.request.inbound-request
+  ::  openapi spec — served public so an MCP proxy can fetch it without
+  ::  having to invent an auth scheme. The spec is metadata, not a side
+  ::  channel into agent state. JSON only because %mcp-proxy parses
+  ::  cached specs with de:json:html and doesn't accept YAML.
+  ?:  =("/notes/openapi.json" url-path)
+    =/  body=octs  (as-octs:mimes:html json:openapi-spec)
+    %-  emil
+    :~  [%give %fact [/http-response/[eyre-id]]~ %http-response-header !>(`response-header:http`[200 ~[['content-type' 'application/json']]])]
+        [%give %fact [/http-response/[eyre-id]]~ %http-response-data !>(`body)]
+        [%give %kick [/http-response/[eyre-id]]~ ~]
+    ==
   ::  v1 HTTP API: POST /notes/~/v1, GET /notes/~/v1/request/<uv>
   ?:  =("/notes/~/v1" url-path)
     ?:  =(%'POST' method)  (handle-v1-post eyre-id inbound-request)
