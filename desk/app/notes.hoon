@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'all-flows-request-response'
+++  dummy  'review-fixes-p1-p2-p3'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -364,7 +364,7 @@
     ?:  =(%'POST' method)  (handle-v1-post eyre-id inbound-request)
     (http-error eyre-id 405 'method not allowed')
   ?:  =("/notes/~/v1/request/" (scag 20 url-path))
-    ?:  =(%'GET' method)  (handle-v1-get-request eyre-id (slag 20 url-path))
+    ?:  =(%'GET' method)  (handle-v1-get-request eyre-id (slag 20 url-path) inbound-request)
     (http-error eyre-id 405 'method not allowed')
   ::  PWA-related static assets: manifest, service worker, icons.
   ::  Each returns [body content-type] or ~. Served scoped under
@@ -443,10 +443,15 @@
 ::
 ::  +handle-v1-get-request: respond with the current state of a request.
 ::  Path remainder is the @uv id. If the request has a terminal result,
-::  mark fetched=& so cleanup can evict it sooner.
+::  mark fetched=& so cleanup can evict it sooner. Auth-gated like the
+::  POST: a request-id is not a capability — without cookie / X-Api-Key
+::  this would leak note content and typed error details to anyone who
+::  guessed (or sniffed) the rid.
 ++  handle-v1-get-request
-  |=  [eyre-id=@ta path-rest=tape]
+  |=  [eyre-id=@ta path-rest=tape =inbound-request:eyre]
   ^+  cor
+  ?.  (request-authorized inbound-request)
+    (http-error eyre-id 401 'unauthorized')
   =/  pax=path  (stab (crip (weld "/" path-rest)))
   ?.  ?=([@ ~] pax)
     (http-error eyre-id 404 'bad path')
@@ -1822,7 +1827,7 @@
         %watch-ack
       ?~  p.sign  no-core
       =.  cor  (finalize-request rid [%error %not-authorized u.p.sign])
-      no-core
+      no-cleanup-placeholder
     ::
         %fact
       ?.  =(p.cage.sign %notes-response-update-1)
@@ -1841,6 +1846,10 @@
       ::  no-op once init flips & after the snapshot arrives.
       =?  no-core  ?&(?=([%ok *] body) ?=(%sub -.net) !init.net)
         no-start-watch
+      ::  on a terminal error, roll back the local placeholder so a
+      ::  failed remote join doesn't leave a ghost notebook in books.
+      ::  no-cleanup-placeholder is a no-op for real subscriptions.
+      =?  no-core  ?=([%error *] body)  no-cleanup-placeholder
       ::  leave the host watch — we got our terminal response
       %-  emit
       [%pass (no-req-watch-wire rid) %agent [ship.flag %notes] %leave ~]
@@ -1850,7 +1859,8 @@
     ==
   ::
   ::  +no-agent-req-poke: handle poke-ack on /notes/req/<uv>/poke wire.
-  ::  nack → finalize %unknown + leave host watch. ack → mark poke-status.
+  ::  nack → finalize %unknown + leave host watch + roll back any
+  ::  placeholder. ack → mark poke-status.
   ++  no-agent-req-poke
     |=  [rid=request-id:v1:n =sign:agent:gall]
     ^+  no-core
@@ -1865,9 +1875,19 @@
         =/  u  (~(got by requests) rid)
         (~(put by requests) rid u(poke-status %nacked))
       =.  cor  (finalize-request rid [%error %unknown u.p.sign])
+      =.  no-core  no-cleanup-placeholder
       %-  emit
       [%pass (no-req-watch-wire rid) %agent [ship.flag %notes] %leave ~]
     ==
+  ::
+  ::  +no-cleanup-placeholder: roll back the books entry if we were
+  ::  still in placeholder state (subscriber, no snapshot yet). For
+  ::  real subscriptions this is a no-op; a transient cross-ship
+  ::  failure doesn't tear down an established notebook.
+  ++  no-cleanup-placeholder
+    ^+  no-core
+    ?.  ?&(?=(%sub -.net) !init.net)  no-core
+    no-core(gone &)
   ::
   ++  no-start-watch
     ^+  no-core

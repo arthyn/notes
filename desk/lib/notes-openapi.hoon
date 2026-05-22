@@ -13,7 +13,7 @@
   "info": {
     "title": "Notes v1 HTTP API",
     "version": "1.0.0",
-    "description": "Request/response HTTP surface for the `%notes` Urbit Gall agent.\nEvery action carries a client-generated `requestId` (`@uv`); the\nagent holds the POST open until either the host's terminal\n`response-update` is forwarded back, or the 20 s per-request\ntimeout fires (in which case the body is `pending` and the client\ncan poll the GET endpoint or subscribe to the SSE path).\n\nAll endpoints are mounted under the agent's Eyre bind (`/notes`)\nand require a logged-in session cookie (`urbauth-<patp>`).\n"
+    "description": "Request/response HTTP surface for the `%notes` Urbit Gall agent.\nEvery action carries a client-generated `requestId` (`@uv`); the\nagent holds the POST open until either the host's terminal\n`response-update` is forwarded back, or the 20 s per-request\ntimeout fires (in which case the body is `pending` and the client\ncan poll the GET endpoint or subscribe to the SSE path).\n\nAll endpoints are mounted under the agent's Eyre bind (`/notes`).\nAuthentication is one of:\n\n- **`urbauth-{patp}` cookie** — set by `POST /~/login` with the\n  ship's `+code`. Standard browser-driven session auth.\n- **`X-Api-Key` header** — long-lived shared secret minted on\n  first install (and after the state-11 → state-12 migration).\n  Designed for bot ships / MCP proxies / automation that can't\n  paste a rotating cookie. Inspect via the\n  `/x/v0/api-key` scry; rotate or clear via the\n  `regenerate-api-key` / `clear-api-key` actions.\n\nEither credential is sufficient — POST and GET both honor either,\nand `/notes/openapi.json` is unauthenticated (spec metadata).\n"
   },
   "servers": [
     {
@@ -330,6 +330,12 @@
           },
           {
             "$ref": "#/components/schemas/ActionNotebookEnvelope"
+          },
+          {
+            "$ref": "#/components/schemas/ActionRegenerateApiKey"
+          },
+          {
+            "$ref": "#/components/schemas/ActionClearApiKey"
           }
         ],
         "discriminator": {
@@ -340,7 +346,9 @@
             "leave": "#/components/schemas/ActionLeave",
             "accept-invite": "#/components/schemas/ActionAcceptInvite",
             "decline-invite": "#/components/schemas/ActionDeclineInvite",
-            "notebook": "#/components/schemas/ActionNotebookEnvelope"
+            "notebook": "#/components/schemas/ActionNotebookEnvelope",
+            "regenerate-api-key": "#/components/schemas/ActionRegenerateApiKey",
+            "clear-api-key": "#/components/schemas/ActionClearApiKey"
           }
         }
       },
@@ -484,6 +492,36 @@
           },
           "action": {
             "$ref": "#/components/schemas/ANotebook"
+          }
+        }
+      },
+      "ActionRegenerateApiKey": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "description": "Replace the stored `X-Api-Key` with a fresh random value.\nInvalidates any bots / scripts still using the previous key.\n",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "regenerate-api-key"
+            ]
+          }
+        }
+      },
+      "ActionClearApiKey": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "description": "Erase the stored `X-Api-Key`. Disables the bypass entirely —\nafterward only eyre-cookie-authenticated requests pass the v1\ndispatch gate. Re-mint via `regenerate-api-key`.\n",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "clear-api-key"
+            ]
           }
         }
       },
@@ -1769,13 +1807,22 @@
         "type": "apiKey",
         "in": "cookie",
         "name": "urbauth-{patp}",
-        "description": "Eyre session cookie set by `POST /~/login` with the ship's\n`+code`. The same cookie authorizes all `/notes/*` paths.\n"
+        "description": "Eyre session cookie set by `POST /~/login` with the ship's\n`+code`. The same cookie authorizes all `/notes/*` paths.\nRotates on a `~m30` Max-Age — fine for interactive use,\nburdensome for unattended automation.\n"
+      },
+      "xApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Api-Key",
+        "description": "Long-lived shared secret minted on first install. Bypass for\nthe v1 dispatch's `src.bowl == our.bowl` guard — designed\nspecifically for bot ships / MCP proxies / automation that\ncan't paste a rotating session cookie. Inspect via the\n`/x/v0/api-key` scry (local user only). Rotate or clear with\nthe `regenerate-api-key` / `clear-api-key` actions.\n"
       }
     }
   },
   "security": [
     {
       "eyreCookie": []
+    },
+    {
+      "xApiKey": []
     }
   ]
 }

@@ -10,8 +10,20 @@ info:
     timeout fires (in which case the body is `pending` and the client
     can poll the GET endpoint or subscribe to the SSE path).
 
-    All endpoints are mounted under the agent's Eyre bind (`/notes`)
-    and require a logged-in session cookie (`urbauth-<patp>`).
+    All endpoints are mounted under the agent's Eyre bind (`/notes`).
+    Authentication is one of:
+
+    - **`urbauth-{patp}` cookie** — set by `POST /~/login` with the
+      ship's `+code`. Standard browser-driven session auth.
+    - **`X-Api-Key` header** — long-lived shared secret minted on
+      first install (and after the state-11 → state-12 migration).
+      Designed for bot ships / MCP proxies / automation that can't
+      paste a rotating cookie. Inspect via the
+      `/x/v0/api-key` scry; rotate or clear via the
+      `regenerate-api-key` / `clear-api-key` actions.
+
+    Either credential is sufficient — POST and GET both honor either,
+    and `/notes/openapi.json` is unauthenticated (spec metadata).
 servers:
   - url: http://localhost:8082
     description: Local dev ship
@@ -225,6 +237,8 @@ components:
         - $ref: "#/components/schemas/ActionAcceptInvite"
         - $ref: "#/components/schemas/ActionDeclineInvite"
         - $ref: "#/components/schemas/ActionNotebookEnvelope"
+        - $ref: "#/components/schemas/ActionRegenerateApiKey"
+        - $ref: "#/components/schemas/ActionClearApiKey"
       discriminator:
         propertyName: type
         mapping:
@@ -234,6 +248,8 @@ components:
           accept-invite: "#/components/schemas/ActionAcceptInvite"
           decline-invite: "#/components/schemas/ActionDeclineInvite"
           notebook: "#/components/schemas/ActionNotebookEnvelope"
+          regenerate-api-key: "#/components/schemas/ActionRegenerateApiKey"
+          clear-api-key: "#/components/schemas/ActionClearApiKey"
     ActionCreateNotebook:
       type: object
       required: [type, title]
@@ -302,6 +318,27 @@ components:
           $ref: "#/components/schemas/Flag"
         action:
           $ref: "#/components/schemas/ANotebook"
+    ActionRegenerateApiKey:
+      type: object
+      required: [type]
+      description: |
+        Replace the stored `X-Api-Key` with a fresh random value.
+        Invalidates any bots / scripts still using the previous key.
+      properties:
+        type:
+          type: string
+          enum: [regenerate-api-key]
+    ActionClearApiKey:
+      type: object
+      required: [type]
+      description: |
+        Erase the stored `X-Api-Key`. Disables the bypass entirely —
+        afterward only eyre-cookie-authenticated requests pass the v1
+        dispatch gate. Re-mint via `regenerate-api-key`.
+      properties:
+        type:
+          type: string
+          enum: [clear-api-key]
     Flag:
       type: string
       description: |
@@ -758,5 +795,22 @@ components:
       description: |
         Eyre session cookie set by `POST /~/login` with the ship's
         `+code`. The same cookie authorizes all `/notes/*` paths.
+        Rotates on a `~m30` Max-Age — fine for interactive use,
+        burdensome for unattended automation.
+    xApiKey:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: |
+        Long-lived shared secret minted on first install. Bypass for
+        the v1 dispatch's `src.bowl == our.bowl` guard — designed
+        specifically for bot ships / MCP proxies / automation that
+        can't paste a rotating session cookie. Inspect via the
+        `/x/v0/api-key` scry (local user only). Rotate or clear with
+        the `regenerate-api-key` / `clear-api-key` actions.
 security:
+  # Either scheme is sufficient. List in priority order: cookie when
+  # the request carries one (browser FE / interactive use), X-Api-Key
+  # otherwise (automation, MCP proxies).
   - eyreCookie: []
+  - xApiKey: []

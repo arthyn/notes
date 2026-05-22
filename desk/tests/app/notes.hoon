@@ -43,6 +43,31 @@
     [authenticated=| secure=| address=[%ipv4 .0.0.0.0] request=req]
   (do-poke %handle-http-request !>([`@ta`'test-eyre-1' inbound]))
 ::
+::  +http-get-v1: simulate an unauthenticated eyre %handle-http-request
+::  GET targeting an arbitrary /notes/* url.
+++  http-get-v1
+  |=  [hdrs=(list [@t @t]) url=@t]
+  =/  req=request:http
+    [%'GET' url hdrs ~]
+  =/  inbound=inbound-request:eyre
+    [authenticated=| secure=| address=[%ipv4 .0.0.0.0] request=req]
+  (do-poke %handle-http-request !>([`@ta`'test-eyre-get' inbound]))
+::
+::  +http-status: extract HTTP status code from a %http-response-header
+::  fact card, if any. Cards from http-error and give-http-response carry
+::  a response-header:http vase; axis +>+- of the card is the cage mark,
+::  axis +.+>+ is the vase. !< on a small vase is fast.
+++  http-status
+  |=  caz=(list card)
+  ^-  (unit @ud)
+  |-  ^-  (unit @ud)
+  ?~  caz  ~
+  ?.  ?=([%give %fact * *] i.caz)  $(caz t.caz)
+  ?.  =(`mark`-.+>+.i.caz %http-response-header)
+    $(caz t.caz)
+  =/  rh=response-header:http  !<(response-header:http +.+>+.i.caz)
+  `status-code.rh
+::
 ::  Card introspection helpers. Hoon's `?=` narrowing on a $% card type
 ::  doesn't propagate inner `=face` shorthand through the union, so we
 ::  reach into the card by axis lark and compare raw nouns. (`;;` casts
@@ -90,6 +115,18 @@
   |=  c=card
   ?.  ?=([%pass * %arvo %b %wait *] c)  |
   =(+<.c wir)
+::
+::  +find-poke-wire: first %pass %agent %poke card's wire, if any.
+::  Used by failure-recovery tests to feed a synthetic nack back
+::  through on-agent without hard-coding wire reconstruction details.
+++  find-poke-wire
+  |=  caz=(list card)
+  ^-  (unit wire)
+  |-  ^-  (unit wire)
+  ?~  caz  ~
+  ?:  ?=([%pass * %agent * %poke *] i.caz)
+    `+<.i.caz
+  $(caz t.caz)
 ::
 ::
 ::  +init-zod: init agent as ~zod; discard cards
@@ -1670,6 +1707,92 @@
   ?:  (~(has by books.s) f)
     |+['unauthorized request created a notebook']~
   &+[~ s2]
+::
+::  ====  test-v1-get-request-requires-auth  ====
+::  GET /notes/~/v1/request/<uv> must NOT return a request's body to an
+::  unauthenticated caller. The request-id is not a capability.
+++  test-v1-get-request-requires-auth
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ::  pre-register a request directly via poke so we know the rid
+  ;<  *  b  (poke-a-v1 [0v1.deadc.0ffee [%create-notebook 'PriorPost']])
+  ;<  caz=(list card)  b
+    (http-get-v1 ~ '/notes/~/v1/request/0v1.deadc.0ffee')
+  |=  s=state
+  =/  st=(unit @ud)  (http-status caz)
+  ?~  st
+    |+['expected http response header card']~
+  ?:  =(u.st 200)
+    |+~[(crip "auth bypassed: 200 to unauthenticated GET /v1/request/<uv>")]
+  ?.  =(u.st 401)
+    |+~[(crip "unexpected GET status {<u.st>}, want 401")]
+  &+[~ s]
+::
+::  ====  test-v1-get-request-honors-api-key  ====
+::  GET with a matching X-Api-Key must succeed (200) — sanity check
+::  that the auth gate isn't blocking the legitimate poll path.
+++  test-v1-get-request-honors-api-key
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  *  b  (poke-a-v1 [0v2.aaaaa.bbbbb [%create-notebook 'KeyPoll']])
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  =/  maybe-key=(unit @t)  api-key.s
+  =/  key=@t  ?~(maybe-key '' u.maybe-key)
+  ;<  caz=(list card)  b
+    (http-get-v1 ~[['x-api-key' key]] '/notes/~/v1/request/0v2.aaaaa.bbbbb')
+  |=  s2=state
+  ?~  maybe-key
+    |+['no api-key after init']~
+  =/  st=(unit @ud)  (http-status caz)
+  ?~  st
+    |+['expected http response header card']~
+  ?.  =(u.st 200)
+    |+~[(crip "expected 200 with valid api-key, got {<u.st>}")]
+  &+[~ s2]
+::
+::  ====  test-failed-join-cleans-up-placeholder  ====
+::  Pre-join writes a placeholder to books before sending the v1 request.
+::  If the host nacks the poke, the placeholder must be rolled back so
+::  the user isn't stuck with a ghost notebook they can't re-join.
+::
+::  We extract the actual poke-wire from the cards emitted by the join
+::  (rather than reconstructing it from rid synthesis details) so the
+::  test stays aligned with the agent if the wire encoding ever changes.
+++  test-failed-join-cleans-up-placeholder
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  =/  remote-flag=flag:n  [~bus %ghost-test]
+  ;<  caz=(list card)  b  (poke-a [%join remote-flag])
+  ;<  sv1=vase  b  get-save
+  =/  s1=state-13:n  !<(state-13:n sv1)
+  =/  pre-has=?  (~(has by books.s1) remote-flag)
+  =/  poke-wire=(unit wire)  (find-poke-wire caz)
+  ::  Crash the test if no poke wire was emitted — that itself would be
+  ::  a regression in the cross-ship send path.
+  ~|  %no-poke-wire-emitted-by-join
+  ?>  ?=(^ poke-wire)
+  =/  nack-sign=sign:agent:gall
+    [%poke-ack `~[leaf+"host rejected"]]
+  ;<  *  b  (do-agent u.poke-wire [~bus %notes] nack-sign)
+  ;<  sv2=vase  b  get-save
+  =/  s2=state-13:n  !<(state-13:n sv2)
+  |=  s3=state
+  ?.  pre-has
+    |+['placeholder missing after join initiated']~
+  ?:  (~(has by books.s2) remote-flag)
+    |+['placeholder not cleaned up after failed join']~
+  &+[~ s3]
 ::
 ::  ====  JSON encoder tests  ===============================================
 ::
