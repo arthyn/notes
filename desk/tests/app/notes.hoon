@@ -953,6 +953,15 @@
   &+[~ s]
 ::
 ::  ====  test-migrate-state-1-to-10  ====
+::  ====  test-migrate-state-1-to-10  ====
+::  Hand-built state-1 with one notebook, two folders (root + child), one note,
+::  and two members. After load: state-10 with slugified flag and every inner
+::  field preserved or backfilled per the per-step migration chain:
+::    state-7→8 backfills updated-by on notebook + folders from created-by;
+::      notes keep their own updated-by.
+::    state-7→8 also re-initializes %pub log to empty.
+::    state-8→9 defaults visibility to %private when not provided.
+::    state-9→10 rewrites flag name from raw atom '1' to slug 's1-nb-1'.
 ++  test-migrate-state-1-to-10
   %-  eval-mare
   =/  m  (mare ,~)
@@ -961,17 +970,112 @@
   ;<  ~  b  init-zod
   =/  nb=notebook-v0:n  [1 'S1-NB' ~zod *@da *@da]
   =/  rf=folder-v0:n    [2 1 '/' ~ ~zod *@da *@da]
+  =/  cf=folder-v0:n    [3 1 'Drafts' `2 ~zod *@da *@da]
+  =/  nt=note:n
+    :*  4  1  2  'Hello'  ~  'hello-body'
+        ~zod  *@da  ~bus  *@da  7
+    ==
   =/  mbrs=notebook-members:n
-    (~(put by *notebook-members:n) ~zod %owner)
-  =/  nb-s=notebook-state-v0:n
-    [nb mbrs (~(put by *(map @ud folder-v0:n)) 2 rf) ~]
+    =|  m0=notebook-members:n
+    =.  m0  (~(put by m0) ~zod %owner)
+    =.  m0  (~(put by m0) ~bus %editor)
+    m0
+  =/  fldmap=(map @ud folder-v0:n)
+    =|  m0=(map @ud folder-v0:n)
+    =.  m0  (~(put by m0) 2 rf)
+    =.  m0  (~(put by m0) 3 cf)
+    m0
+  =/  ntmap=(map @ud note:n)
+    (~(put by *(map @ud note:n)) 4 nt)
+  =/  nb-s=notebook-state-v0:n  [nb mbrs fldmap ntmap]
   =/  f=flag-v9:n  [~zod '1']
   =/  empty-bks  *(map flag-v9:n [net=net-v0:n notebook-state=notebook-state-v0:n])
   =/  bks  (~(put by empty-bks) f [[%pub *] nb-s])
-  =/  s1=state-1:n  [%1 bks 2]
+  =/  s1=state-1:n  [%1 bks 4]
   ;<  *  b  (do-load notes-agent `!>(s1))
   ;<  sv=vase  b  get-save
-  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
+  =/  s10=state-10:n  !<(state-10:n sv)
+  =/  new-f=flag:n  [~zod (slugify-test 'S1-NB' 1)]
+  |=  s=state
+  ::  exactly one notebook in books, under the new slug; old key gone
+  ?.  =(1 ~(wyt by books.s10))
+    |+['expected single notebook in books after state-1→10']~
+  ?.  (~(has by books.s10) new-f)
+    |+['expected new slugified flag present after state-1→10']~
+  ?.  !(~(has by books.s10) [~zod `@tas`'1'])
+    |+['expected old flag-v9 key gone after state-1→10']~
+  ::  next-id preserved; cross-cutting maps empty
+  ?.  =(4 next-id.s10)
+    |+['expected next-id preserved at 4 after state-1→10']~
+  ?.  =(~ published.s10)
+    |+['expected published empty after state-1→10']~
+  ?.  =(~ invites.s10)
+    |+['expected invites empty after state-1→10']~
+  ::  drill into the migrated notebook entry
+  =/  entry=[=net:n =notebook-state:n]  (~(got by books.s10) new-f)
+  ::  net=%pub (log re-initialized empty during state-7→8)
+  ?.  ?=([%pub *] net.entry)
+    |+['expected net=%pub after state-1→10']~
+  =/  migrated-nb-s=notebook-state:n  notebook-state.entry
+  ::  notebook: id/title/created-by preserved; updated-by backfilled from created-by
+  ?.  =(1 id.notebook.migrated-nb-s)
+    |+['expected notebook id=1 preserved after state-1→10']~
+  ?.  =('S1-NB' title.notebook.migrated-nb-s)
+    |+['expected notebook title preserved after state-1→10']~
+  ?.  =(~zod created-by.notebook.migrated-nb-s)
+    |+['expected notebook created-by preserved after state-1→10']~
+  ?.  =(~zod updated-by.notebook.migrated-nb-s)
+    |+['expected notebook updated-by backfilled from created-by after state-1→10']~
+  ::  visibility defaults to %private during state-8→9
+  ?.  =(%private visibility.migrated-nb-s)
+    |+['expected visibility=%private default after state-1→10']~
+  ::  history map empty (state-1 had no history)
+  ?.  =(~ history.migrated-nb-s)
+    |+['expected empty history after state-1→10']~
+  ::  members preserved verbatim
+  ?.  =(2 ~(wyt by members.migrated-nb-s))
+    |+['expected 2 members preserved after state-1→10']~
+  ?.  =(%owner (~(got by members.migrated-nb-s) ~zod))
+    |+['expected ~zod still owner after state-1→10']~
+  ?.  =(%editor (~(got by members.migrated-nb-s) ~bus))
+    |+['expected ~bus still editor after state-1→10']~
+  ::  folders: both root + child present; updated-by backfilled
+  ?.  =(2 ~(wyt by folders.migrated-nb-s))
+    |+['expected 2 folders after state-1→10']~
+  =/  mig-rf=folder:n  (~(got by folders.migrated-nb-s) 2)
+  ?.  =(1 notebook-id.mig-rf)
+    |+['expected root folder notebook-id=1 after state-1→10']~
+  ?.  =('/' name.mig-rf)
+    |+['expected root folder name preserved after state-1→10']~
+  ?.  =(~ parent-folder-id.mig-rf)
+    |+['expected root folder parent=~ after state-1→10']~
+  ?.  =(~zod updated-by.mig-rf)
+    |+['expected root folder updated-by backfilled after state-1→10']~
+  =/  mig-cf=folder:n  (~(got by folders.migrated-nb-s) 3)
+  ?.  =(`2 parent-folder-id.mig-cf)
+    |+['expected child folder parent=2 preserved after state-1→10']~
+  ?.  =('Drafts' name.mig-cf)
+    |+['expected child folder name preserved after state-1→10']~
+  ?.  =(~zod updated-by.mig-cf)
+    |+['expected child folder updated-by backfilled after state-1→10']~
+  ::  note: every field intact; its existing updated-by (~bus) preserved
+  ?.  =(1 ~(wyt by notes.migrated-nb-s))
+    |+['expected 1 note after state-1→10']~
+  =/  mig-nt=note:n  (~(got by notes.migrated-nb-s) 4)
+  ?.  =(2 folder-id.mig-nt)
+    |+['expected note folder-id=2 preserved after state-1→10']~
+  ?.  =('Hello' title.mig-nt)
+    |+['expected note title preserved after state-1→10']~
+  ?.  =('hello-body' body-md.mig-nt)
+    |+['expected note body preserved after state-1→10']~
+  ?.  =(~zod created-by.mig-nt)
+    |+['expected note created-by preserved after state-1→10']~
+  ?.  =(~bus updated-by.mig-nt)
+    |+['expected note updated-by preserved (~bus) after state-1→10']~
+  ?.  =(7 revision.mig-nt)
+    |+['expected note revision preserved at 7 after state-1→10']~
+  &+[~ s]
 ::
 ::  ====  test-migrate-state-4-backfills-updated-by  ====
 ::  state-4: notebook and folders lack updated-by; migration backfills from created-by.
