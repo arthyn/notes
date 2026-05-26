@@ -536,14 +536,13 @@
     "schemas": {
       "RequestId": {
         "type": "string",
-        "description": "Canonical Hoon `@uv` (base-32 with `.` separators every 5\nchars from the right, prefixed `0v`). Clients should use a\ncryptographically random 96-bit value.\n",
+        "description": "Canonical Hoon `@uv` (base-32 with `.` separators every 5\nchars from the right, prefixed `0v`). A correlation id for the\nrequest. OPTIONAL on POST: if you omit it (or send something\nthat isn't a valid `@uv`), the server mints one and returns it\nin the response. You only need to supply your own if you intend\nto poll `GET /request/{requestId}` or subscribe to the SSE\nrequest stream — for the common case (read the held-open POST\nresponse inline) you can leave it out entirely.\n",
         "pattern": "^0v[0-9a-v.]+$",
         "example": "0v3.1k7gh.j5b2m.r8nq9"
       },
       "RequestEnvelope": {
         "type": "object",
         "required": [
-          "requestId",
           "action"
         ],
         "properties": {

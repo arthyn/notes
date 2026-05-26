@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'meaningful-responses-and-reads'
+++  dummy  'optional-requestid-defensive-parse'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -421,9 +421,15 @@
   ==
 ::
 ::  +handle-v1-post: parse a v1 action from the POST body, register the
-::  request with eyre-id as http-id (so the HTTP request is held open until
-::  finalize-request emits the response), then dispatch via the normal
-::  %notes-action-1 poke routing.
+::  request with eyre-id as http-id (so the HTTP request is held open
+::  until finalize-request emits the response), then dispatch.
+::
+::  Parsing is defensive — malformed bodies return 400, never crash to a
+::  500. `requestId` is OPTIONAL: clients (esp. LLM tool-callers) often
+::  can't produce a valid @uv, so if it's absent or unparseable we mint
+::  one server-side. The minted id rides back in the response, so the
+::  polling / SSE fallback still works; the common held-open POST path
+::  doesn't need the client to know it at all.
 ++  handle-v1-post
   |=  [eyre-id=@ta =inbound-request:eyre]
   ^+  cor
@@ -431,20 +437,36 @@
     (http-error eyre-id 401 'unauthorized')
   ?~  body.request.inbound-request
     (http-error eyre-id 400 'missing body')
-  =/  body-cord=@t  q.u.body.request.inbound-request
-  =/  jon=(unit json)  (de:json:html body-cord)
+  =/  jon=(unit json)  (de:json:html q.u.body.request.inbound-request)
   ?~  jon  (http-error eyre-id 400 'invalid json')
-  =/  =action:v1:n  (action:v1:dejs:notes-json u.jon)
-  =/  rid  request-id.action
+  ?.  ?=([%o *] u.jon)
+    (http-error eyre-id 400 'body must be a json object')
+  =/  act-j=(unit json)  (~(get by p.u.jon) 'action')
+  ?~  act-j
+    (http-error eyre-id 400 'missing `action` field')
+  ::  parse the a-notes; a bad action shape is a client error, not a 500
+  =/  a-res=(each a-notes:n tang)
+    (mule |.((action:dejs:notes-json u.act-j)))
+  ?:  ?=(%| -.a-res)
+    (http-error eyre-id 400 'malformed action')
+  =/  a-act=a-notes:n  p.a-res
+  ::  resolve requestId: honor a valid client @uv, else mint one
+  =/  rid=request-id:v1:n
+    =/  rj=(unit json)  (~(get by p.u.jon) 'requestId')
+    ?.  ?&(?=(^ rj) ?=([%s *] u.rj))
+      `@uv`(mix eny.bowl rid-counter)
+    =/  parsed=(each @uv tang)  (mule |.((slav %uv p.u.rj)))
+    ?:(?=(%& -.parsed) p.parsed `@uv`(mix eny.bowl rid-counter))
+  =.  rid-counter  +(rid-counter)
   ::  register with eyre-id so the in-flight HTTP request is tracked
   =.  requests
     %+  ~(put by requests)  rid
     [rid `eyre-id %sending ~ ~ |]
   ::  dispatch directly — auth already verified above; skipping the
-  ::  +poke %notes-action-1 arm's src.bowl gate, which would reject
-  ::  the request when eyre delivered it unauthenticated and we let it
+  ::  +poke %notes-action-1 arm's src.bowl gate, which would reject the
+  ::  request when eyre delivered it unauthenticated but we let it
   ::  through on a valid X-Api-Key.
-  (dispatch-v1-action action)
+  (dispatch-v1-action [rid a-act])
 ::
 ::  +handle-v1-get-request: respond with the current state of a request.
 ::  Path remainder is the @uv id. If the request has a terminal result,

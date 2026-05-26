@@ -1530,6 +1530,61 @@
     |+['expected notebook to be created via v1 poke']~
   &+[~ s2]
 ::
+::  ====  test-v1-post-omitted-requestid-mints-one  ====
+::  A POST with no requestId (common for LLM tool-callers) must NOT 500
+::  — the server mints one, creates the notebook, returns 200.
+++  test-v1-post-omitted-requestid-mints-one
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  sv0=vase  b  get-save
+  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
+  =/  body=@t  '{"action":{"type":"create-notebook","title":"NoRid"}}'
+  ;<  caz=(list card)  b  (http-post-v1 ~[['x-api-key' key]] body)
+  =/  f=flag:n  (nb-flag our.bowl 'NoRid' 1)
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?~  api-key.s0  |+['no api-key after init']~
+  ::  must not have 500'd — header card present, status 200
+  =/  st=(unit @ud)  (http-status caz)
+  ?.  =(st `200)
+    |+~[(crip "expected 200 for requestId-less POST, got {<st>}")]
+  ?.  (~(has by books.s) f)
+    |+['notebook not created from requestId-less POST']~
+  &+[~ s2]
+::
+::  ====  test-v1-post-garbage-requestid-no-500  ====
+::  A non-@uv requestId must be tolerated (server mints), not crash.
+++  test-v1-post-garbage-requestid-no-500
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  sv0=vase  b  get-save
+  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
+  =/  body=@t
+    '{"requestId":"not-a-valid-uv-!!","action":{"type":"create-notebook","title":"Garbage"}}'
+  ;<  caz=(list card)  b  (http-post-v1 ~[['x-api-key' key]] body)
+  =/  f=flag:n  (nb-flag our.bowl 'Garbage' 1)
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?~  api-key.s0  |+['no api-key after init']~
+  =/  st=(unit @ud)  (http-status caz)
+  ?.  =(st `200)
+    |+~[(crip "expected 200 for garbage requestId, got {<st>}")]
+  ?.  (~(has by books.s) f)
+    |+['notebook not created from garbage-requestId POST']~
+  &+[~ s2]
+::
 ::  ====  test-v1-regenerate-returns-key  ====
 ::  %regenerate-api-key must finalize with the new key in an %api-key body.
 ++  test-v1-regenerate-returns-key
