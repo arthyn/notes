@@ -149,6 +149,387 @@
           }
         }
       }
+    },
+    "/notes/~/v1/notebooks": {
+      "get": {
+        "summary": "List notebooks",
+        "description": "All notebooks the authenticated identity can view (hosted or\nsubscribed). Same data as the `/x/v0/notebooks` scry, but\nhonors `X-Api-Key` so a bot can read without a session cookie.\n",
+        "operationId": "listNotebooks",
+        "responses": {
+          "200": {
+            "description": "Notebook summaries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NotebookSummary"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/notes/~/v1/notebooks/{host}/{name}": {
+      "get": {
+        "summary": "Notebook detail",
+        "operationId": "getNotebook",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Host ship (~-prefixed @p)"
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Notebook slug (@tas)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notebook detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotebookSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Notebook not found / caller not a member"
+          }
+        }
+      }
+    },
+    "/notes/~/v1/notebooks/{host}/{name}/folders": {
+      "get": {
+        "summary": "List folders",
+        "operationId": "listFolders",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Folders",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Folder"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/notes/~/v1/notebooks/{host}/{name}/folders/{id}": {
+      "get": {
+        "summary": "Single folder",
+        "operationId": "getFolder",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Folder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Folder"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/notes/~/v1/notebooks/{host}/{name}/notes": {
+      "get": {
+        "summary": "List notes",
+        "operationId": "listNotes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Note"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/notes/~/v1/notebooks/{host}/{name}/notes/{id}": {
+      "get": {
+        "summary": "Single note (with body)",
+        "operationId": "getNote",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Note",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Note"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/notes/~/v1/notebooks/{host}/{name}/notes/{id}/history": {
+      "get": {
+        "summary": "Note revision history (newest first)",
+        "operationId": "getNoteHistory",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Archived revisions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NoteRevision"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/notes/~/v1/notebooks/{host}/{name}/members": {
+      "get": {
+        "summary": "List members + roles",
+        "operationId": "listMembers",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Members",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MemberRecord"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/notes/~/v1/invites": {
+      "get": {
+        "summary": "Pending invites we've received",
+        "operationId": "listInvites",
+        "responses": {
+          "200": {
+            "description": "Invite records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/InviteRecord"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -198,6 +579,12 @@
             "$ref": "#/components/schemas/ResponseNoChange"
           },
           {
+            "$ref": "#/components/schemas/ResponseNotebook"
+          },
+          {
+            "$ref": "#/components/schemas/ResponseApiKey"
+          },
+          {
             "$ref": "#/components/schemas/ResponseError"
           },
           {
@@ -209,6 +596,8 @@
           "mapping": {
             "ok": "#/components/schemas/ResponseOk",
             "no-change": "#/components/schemas/ResponseNoChange",
+            "notebook": "#/components/schemas/ResponseNotebook",
+            "api-key": "#/components/schemas/ResponseApiKey",
             "error": "#/components/schemas/ResponseError",
             "pending": "#/components/schemas/ResponsePending"
           }
@@ -229,6 +618,47 @@
           },
           "response": {
             "$ref": "#/components/schemas/RNotes"
+          }
+        }
+      },
+      "ResponseNotebook": {
+        "type": "object",
+        "description": "Returned by `create-notebook` — the new notebook's summary so\nthe caller learns the slugified flag + metadata without a\nfollow-up read.\n",
+        "required": [
+          "type",
+          "notebook"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "notebook"
+            ]
+          },
+          "notebook": {
+            "$ref": "#/components/schemas/NotebookSummary"
+          }
+        }
+      },
+      "ResponseApiKey": {
+        "type": "object",
+        "description": "Returned by `regenerate-api-key` (new key) and `clear-api-key`\n(apiKey: null). `apiKey` is the value to send as `X-Api-Key`.\n",
+        "required": [
+          "type",
+          "apiKey"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "api-key"
+            ]
+          },
+          "apiKey": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -1201,6 +1631,111 @@
           }
         }
       },
+      "NotebookSummary": {
+        "type": "object",
+        "required": [
+          "host",
+          "flagName",
+          "notebook",
+          "visibility"
+        ],
+        "properties": {
+          "host": {
+            "type": "string",
+            "example": "~zod"
+          },
+          "flagName": {
+            "type": "string",
+            "example": "my-notebook-1"
+          },
+          "notebook": {
+            "$ref": "#/components/schemas/Notebook"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ]
+          }
+        }
+      },
+      "NoteRevision": {
+        "type": "object",
+        "required": [
+          "rev",
+          "at",
+          "author",
+          "title",
+          "bodyMd"
+        ],
+        "properties": {
+          "rev": {
+            "type": "integer"
+          },
+          "at": {
+            "type": "integer",
+            "description": "Unix seconds"
+          },
+          "author": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "bodyMd": {
+            "type": "string"
+          }
+        }
+      },
+      "MemberRecord": {
+        "type": "object",
+        "required": [
+          "ship",
+          "role"
+        ],
+        "properties": {
+          "ship": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "editor",
+              "viewer"
+            ]
+          }
+        }
+      },
+      "InviteRecord": {
+        "type": "object",
+        "required": [
+          "host",
+          "flagName",
+          "from",
+          "sentAt",
+          "title"
+        ],
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "flagName": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "sentAt": {
+            "type": "integer",
+            "description": "Unix seconds"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "Folder": {
         "type": "object",
         "required": [
@@ -1294,33 +1829,6 @@
           },
           "revision": {
             "type": "integer"
-          }
-        }
-      },
-      "NoteRevision": {
-        "type": "object",
-        "required": [
-          "rev",
-          "at",
-          "author",
-          "title",
-          "bodyMd"
-        ],
-        "properties": {
-          "rev": {
-            "type": "integer"
-          },
-          "at": {
-            "type": "integer"
-          },
-          "author": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          },
-          "bodyMd": {
-            "type": "string"
           }
         }
       },

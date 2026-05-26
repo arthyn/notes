@@ -1498,11 +1498,11 @@
 ::
 ::  ====  v1 / request-id surface tests  ====================================
 ::
-::  ====  test-v1-create-notebook-finalizes  ====
-::  Top-level v1 action: poke notes-action-1 with %create-notebook. After the
-::  poke we expect (a) the notebook to exist and (b) the requests map to hold
-::  a terminal entry keyed by our request-id.
-++  test-v1-create-notebook-finalizes
+::  ====  test-v1-create-notebook-returns-summary  ====
+::  Top-level v1 %create-notebook: the request must finalize with a
+::  %notebook body carrying the new notebook's flag + metadata, so a
+::  caller learns the slugified flag without re-scrying.
+++  test-v1-create-notebook-returns-summary
   %-  eval-mare
   =/  m  (mare ,~)
   =*  b  bind:m
@@ -1514,19 +1514,84 @@
   ;<  ~  b  (ex-cards-ne caz)
   ;<  sv=vase  b  get-save
   =/  s=state-13:n  !<(state-13:n sv)
+  =/  f=flag:n  (nb-flag our.bowl 'V1 NB' 1)
   |=  s2=state
   ?~  req=(~(get by requests.s) rid)
     |+['expected requests entry after v1 poke']~
   ?~  result.u.req
     |+['expected result on terminal request']~
-  ?.  ?=(%no-change -.u.result.u.req)
-    |+~[(crip "expected %no-change result, got {<-.u.result.u.req>}")]
+  ?.  ?=(%notebook -.u.result.u.req)
+    |+~[(crip "expected %notebook result, got {<-.u.result.u.req>}")]
+  ?.  =(flag.summary.u.result.u.req f)
+    |+['response summary carries the wrong flag']~
   ?~  final-at.u.req
     |+['expected final-at set on terminal request']~
-  =/  f=flag:n  (nb-flag our.bowl 'V1 NB' 1)
   ?.  (~(has by books.s) f)
     |+['expected notebook to be created via v1 poke']~
   &+[~ s2]
+::
+::  ====  test-v1-regenerate-returns-key  ====
+::  %regenerate-api-key must finalize with the new key in an %api-key body.
+++  test-v1-regenerate-returns-key
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  =/  rid=request-id:v1:n  0v5.aaaaa
+  ;<  *  b  (poke-a-v1 [rid [%regenerate-api-key ~]])
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?~  req=(~(get by requests.s) rid)
+    |+['expected requests entry']~
+  ?~  result.u.req
+    |+['expected result']~
+  ?.  ?=(%api-key -.u.result.u.req)
+    |+~[(crip "expected %api-key result, got {<-.u.result.u.req>}")]
+  ?~  key.u.result.u.req
+    |+['expected non-null key in response']~
+  ?.  =(key.u.result.u.req api-key.s)
+    |+['response key does not match stored key']~
+  &+[~ s2]
+::
+::  ====  test-v1-read-notebooks  ====
+::  GET /notes/~/v1/notebooks with a matching X-Api-Key returns 200 +
+::  a JSON array of notebook summaries.
+++  test-v1-read-notebooks
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  *  b  (poke-a [%create-notebook 'Readable'])
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  =/  key=@t  ?~(api-key.s '' u.api-key.s)
+  ;<  caz=(list card)  b
+    (http-get-v1 ~[['x-api-key' key]] '/notes/~/v1/notebooks')
+  |=  s2=state
+  ?~  api-key.s
+    |+['no api-key after init']~
+  =/  st=(unit @ud)  (http-status caz)
+  ?.  =(st `200)
+    |+~[(crip "expected 200 from notebooks read, got {<st>}")]
+  &+[~ s2]
+::
+::  ====  test-v1-read-requires-auth  ====
+::  GET read endpoints reject unauthenticated callers.
+++  test-v1-read-requires-auth
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  caz=(list card)  b  (http-get-v1 ~ '/notes/~/v1/notebooks')
+  |=  s=state
+  =/  st=(unit @ud)  (http-status caz)
+  ?.  =(st `401)
+    |+~[(crip "expected 401 from unauthenticated read, got {<st>}")]
+  &+[~ s]
 ::
 ::  ====  test-v1-notebook-action-emits-cards  ====
 ::  Notebook-scoped v1 action routes through no-action-v1: must emit a host

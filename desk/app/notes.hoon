@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'review-fixes-p1-p2-p3'
+++  dummy  'meaningful-responses-and-reads'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -359,12 +359,17 @@
         [%give %fact [/http-response/[eyre-id]]~ %http-response-data !>(`body)]
         [%give %kick [/http-response/[eyre-id]]~ ~]
     ==
-  ::  v1 HTTP API: POST /notes/~/v1, GET /notes/~/v1/request/<uv>
+  ::  v1 HTTP API: POST /notes/~/v1, GET /notes/~/v1/request/<uv>,
+  ::  GET /notes/~/v1/notebooks[...] + /notes/~/v1/invites (read surface)
   ?:  =("/notes/~/v1" url-path)
     ?:  =(%'POST' method)  (handle-v1-post eyre-id inbound-request)
     (http-error eyre-id 405 'method not allowed')
   ?:  =("/notes/~/v1/request/" (scag 20 url-path))
     ?:  =(%'GET' method)  (handle-v1-get-request eyre-id (slag 20 url-path) inbound-request)
+    (http-error eyre-id 405 'method not allowed')
+  ?:  =("/notes/~/v1/" (scag 12 url-path))
+    ::  any other /notes/~/v1/* — GET read endpoints
+    ?:  =(%'GET' method)  (handle-v1-read eyre-id url-path inbound-request)
     (http-error eyre-id 405 'method not allowed')
   ::  PWA-related static assets: manifest, service worker, icons.
   ::  Each returns [body content-type] or ~. Served scoped under
@@ -464,6 +469,80 @@
   =.  requests
     (~(put by requests) rid u.req(fetched &))
   (give-http-response eyre-id [rid body])
+::
+::  +give-json-response: emit a 200 application/json HTTP response with
+::  an arbitrary json payload (read endpoints; not the v1 response shape).
+++  give-json-response
+  |=  [eyre-id=@ta =json]
+  ^+  cor
+  =/  body=octs  (as-octs:mimes:html (en:json:html json))
+  %-  emil
+  :~  [%give %fact [/http-response/[eyre-id]]~ %http-response-header !>(`response-header:http`[200 ~[['content-type' 'application/json']]])]
+      [%give %fact [/http-response/[eyre-id]]~ %http-response-data !>(`body)]
+      [%give %kick [/http-response/[eyre-id]]~ ~]
+  ==
+::
+::  +read-notebooks-json: the cross-cutting notebook list, filtered to
+::  notebooks the caller can view. Mirrors the /x/v0/notebooks scry.
+::  Identity for the v1 read API is always our.bowl: request-authorized
+::  has already confirmed the caller is either the logged-in user
+::  (cookie) or a trusted bot holding the api-key (acting as us). We
+::  can't use src.bowl — an X-Api-Key request isn't eyre-authenticated,
+::  so its src.bowl is not our.bowl and would filter out everything.
+++  read-notebooks-json
+  ^-  json
+  =/  summaries=(list notebook-summary:n)
+    %+  murn  ~(tap by books)
+    |=  [=flag:n [* =notebook-state:n]]
+    ?.  (can-view-flag flag our.bowl)  ~
+    `[flag [notebook visibility]:notebook-state]
+  (notebook-summaries:enjs:notes-json summaries)
+::
+::  +read-invites-json: pending invites we've received.
+++  read-invites-json
+  ^-  json
+  =/  recs=(list invite-record:n)
+    %+  turn  ~(tap by invites)
+    |=  [=flag:n info=invite-info:n]
+    [flag info]
+  (invite-records:enjs:notes-json recs)
+::
+::  +handle-v1-read: GET read surface under /notes/~/v1/. Auth-gated the
+::  same as POST (cookie OR X-Api-Key) so a bot with only a key can read
+::  as well as write — the v0 scry paths require a cookie. JSON out.
+::
+::    /notes/~/v1/notebooks
+::    /notes/~/v1/notebooks/{host}/{name}
+::    /notes/~/v1/notebooks/{host}/{name}/folders
+::    /notes/~/v1/notebooks/{host}/{name}/folders/{id}
+::    /notes/~/v1/notebooks/{host}/{name}/notes
+::    /notes/~/v1/notebooks/{host}/{name}/notes/{id}
+::    /notes/~/v1/notebooks/{host}/{name}/notes/{id}/history
+::    /notes/~/v1/notebooks/{host}/{name}/members
+::    /notes/~/v1/invites
+::
+++  handle-v1-read
+  |=  [eyre-id=@ta url-path=tape =inbound-request:eyre]
+  ^+  cor
+  ?.  (request-authorized inbound-request)
+    (http-error eyre-id 401 'unauthorized')
+  ::  strip "/notes/~/v1/" (12 chars) → remaining path segments
+  =/  pax=path  (stab (crip (weld "/" (slag 12 url-path))))
+  ?+    pax  (http-error eyre-id 404 'unknown read path')
+      [%notebooks ~]
+    (give-json-response eyre-id read-notebooks-json)
+  ::
+      [%invites ~]
+    (give-json-response eyre-id read-invites-json)
+  ::
+      [%notebooks @ @ *]
+    =/  =flag:n  [(slav %p i.t.pax) `@tas`i.t.t.pax]
+    ?~  (~(get by books) flag)
+      (http-error eyre-id 404 'notebook not found')
+    =/  jon=(unit json)  (no-read-json:(no-abed:no-core flag) t.t.t.pax)
+    ?~  jon  (http-error eyre-id 404 'not found')
+    (give-json-response eyre-id u.jon)
+  ==
 ::
 ++  watch
   |=  =(pole knot)
@@ -1031,8 +1110,14 @@
     ::    response-update arrives later via no-agent-req-watch
     ?-  -.a-act
         %create-notebook
-      =.  cor  se-abet:(se-create-notebook:(se-init:se-core a-act) a-act)
-      (finalize-request rid [%no-change ~])
+      ::  return the new notebook's summary so the caller learns the
+      ::  slugified flag + metadata without a follow-up scry.
+      =/  core  (se-create-notebook:(se-init:se-core a-act) a-act)
+      =.  cor  se-abet:core
+      =/  =notebook-summary:n
+        :+  flag.core  notebook.notebook-state.core
+        visibility.notebook-state.core
+      (finalize-request rid [%notebook notebook-summary])
     ::
         %join
       (join-remote-v1 rid flag.a-act)
@@ -1048,12 +1133,13 @@
       (finalize-request rid [%no-change ~])
     ::
         %regenerate-api-key
-      =.  api-key  `(scot %uv eny.bowl)
-      (finalize-request rid [%no-change ~])
+      =/  new-key=@t  (scot %uv eny.bowl)
+      =.  api-key  `new-key
+      (finalize-request rid [%api-key `new-key])
     ::
         %clear-api-key
       =.  api-key  ~
-      (finalize-request rid [%no-change ~])
+      (finalize-request rid [%api-key ~])
     ==
   =/  =flag:n  flag.a-act
   ?+    -.a-notebook.a-act
@@ -2123,5 +2209,52 @@
     :+  %fact
       [`path`/v0/notes/(scot %p ship.flag)/[name.flag]/stream]~
     notes-response+!>(`response:n`[%snapshot flag visibility.notebook-state notebook-state])
+  ::
+  ::  +no-read-json: per-notebook read surface for the v1 GET API. Same
+  ::  data as +no-peek but JSON-encoded for HTTP. `rest` is the path
+  ::  remainder after /notes/~/v1/notebooks/{host}/{name}. Membership-
+  ::  gated like no-peek.
+  ++  no-read-json
+    |=  rest=path
+    ^-  (unit json)
+    ::  our.bowl, not src.bowl — see read-notebooks-json. The HTTP auth
+    ::  gate already ran; identity is the ship.
+    ?>  ?=(^ (~(get by members.notebook-state) our.bowl))
+    ?+    rest  ~
+        ~
+      ::  notebook detail
+      :-  ~
+      %-  notebook-detail:enjs:notes-json
+      [flag notebook.notebook-state visibility.notebook-state]
+    ::
+        [%folders ~]
+      `(folders:enjs:notes-json ~(val by folders.notebook-state))
+    ::
+        [%folders @ ~]
+      =/  fid=@ud  (slav %ud i.t.rest)
+      ?~  fld=(~(get by folders.notebook-state) fid)  ~
+      `(folder:enjs:notes-json u.fld)
+    ::
+        [%notes ~]
+      `(notes:enjs:notes-json ~(val by notes.notebook-state))
+    ::
+        [%notes @ ~]
+      =/  nid=@ud  (slav %ud i.t.rest)
+      ?~  note=(~(get by notes.notebook-state) nid)  ~
+      `(note:enjs:notes-json u.note)
+    ::
+        [%notes @ %history ~]
+      =/  nid=@ud  (slav %ud i.t.rest)
+      :-  ~
+      %-  note-revisions:enjs:notes-json
+      (fall (~(get by history.notebook-state) nid) ~)
+    ::
+        [%members ~]
+      =/  mrecords=(list member-record:n)
+        %+  turn  ~(tap by members.notebook-state)
+        |=  [who=ship r=role:n]
+        [who r]
+      `(member-records:enjs:notes-json mrecords)
+    ==
   --
 --

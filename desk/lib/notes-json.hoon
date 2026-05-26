@@ -394,6 +394,19 @@
             ['response' (^response r-notes.bod)]
         ==
       ::
+          %notebook
+        ::  notebook-summary = outer encoder (host, flagName, notebook, visibility)
+        %-  pairs
+        :~  ['type' s+'notebook']
+            ['notebook' (notebook-summary summary.bod)]
+        ==
+      ::
+          %api-key
+        %-  pairs
+        :~  ['type' s+'api-key']
+            ['apiKey' ?~(key.bod ~ s+u.key.bod)]
+        ==
+      ::
           %error
         %-  pairs
         :~  ['type' s+'error']

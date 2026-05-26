@@ -305,12 +305,19 @@
   +$  command           [=request-id =c-notes]
   +$  response          [id=request-id body=response-body]
   +$  response-update   [id=request-id body=response-update-body]
-  ::  $response-body: subscriber → client. %ok carries r-notes so the
-  ::  client sees the flag inline; cross-ship requests still in flight
-  ::  return %pending and the client polls / subs the request path.
+  ::  $response-body: subscriber → client.
+  ::  %ok        — a notebook mutation (snapshot/update); carries flag inline
+  ::  %notebook  — a freshly-created notebook's summary (flag + metadata +
+  ::               visibility). Returned by %create-notebook so the caller
+  ::               learns the slugified flag without re-scrying.
+  ::  %api-key   — the current api-key after a regenerate/clear. ~ = cleared.
+  ::  %error     — typed failure
+  ::  %pending   — cross-ship request still in flight; poll / sub the path
   +$  response-body
     $%  [%no-change ~]
         [%ok =r-notes]
+        [%notebook summary=notebook-summary]
+        [%api-key key=(unit @t)]
         [%error type=action-error message=tang]
         [%pending status=poke-status]
     ==
