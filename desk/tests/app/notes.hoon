@@ -53,6 +53,17 @@
     [authenticated=| secure=| address=[%ipv4 .0.0.0.0] request=req]
   (do-poke %handle-http-request !>([`@ta`'test-eyre-get' inbound]))
 ::
+::  +http-req-v1: simulate an eyre %handle-http-request with arbitrary
+::  method + url + body (empty body = no octs). For the first-class REST
+::  write endpoints.
+++  http-req-v1
+  |=  [method=method:http hdrs=(list [@t @t]) url=@t body=@t]
+  =/  req=request:http
+    [method url hdrs ?:(=('' body) ~ `[(met 3 body) body])]
+  =/  inbound=inbound-request:eyre
+    [authenticated=| secure=| address=[%ipv4 .0.0.0.0] request=req]
+  (do-poke %handle-http-request !>([`@ta`'test-eyre-w' inbound]))
+::
 ::  +http-status: extract HTTP status code from a %http-response-header
 ::  fact card, if any. Cards from http-error and give-http-response carry
 ::  a response-header:http vase; axis +>+- of the card is the cage mark,
@@ -1583,6 +1594,80 @@
     |+~[(crip "expected 200 for garbage requestId, got {<st>}")]
   ?.  (~(has by books.s) f)
     |+['notebook not created from garbage-requestId POST']~
+  &+[~ s2]
+::
+::  ====  test-rest-create-notebook  ====
+::  POST /notes/~/v1/notebooks {title} → 200 + notebook created.
+++  test-rest-create-notebook
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  sv0=vase  b  get-save
+  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
+  ;<  caz=(list card)  b
+    (http-req-v1 %'POST' ~[['x-api-key' key]] '/notes/~/v1/notebooks' '{"title":"RestNB"}')
+  =/  f=flag:n  (nb-flag our.bowl 'RestNB' 1)
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?~  api-key.s0  |+['no api-key']~
+  ?.  =((http-status caz) `200)
+    |+~[(crip "create-notebook POST not 200: {<(http-status caz)>}")]
+  ?.  (~(has by books.s) f)
+    |+['notebook not created via REST POST']~
+  &+[~ s2]
+::
+::  ====  test-rest-create-update-delete-note  ====
+::  Full note lifecycle through the first-class endpoints (state-asserted;
+::  the held-open HTTP response doesn't finalize in test-agent since fact
+::  delivery isn't simulated, but the drained self-poke mutates state).
+++  test-rest-create-update-delete-note
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  sv0=vase  b  get-save
+  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
+  =/  hdr=(list [@t @t])  ~[['x-api-key' key]]
+  ::  notebook id=1, root folder id=2
+  ;<  *  b  (poke-a [%create-notebook 'NoteLife'])
+  =/  f=flag:n  (nb-flag our.bowl 'NoteLife' 1)
+  =/  base=@t  (crip "/notes/~/v1/notebooks/{<`@p`our.bowl>}/{(trip name.f)}")
+  ::  create note (folder 2) → note id 3
+  ;<  *  b  (http-req-v1 %'POST' hdr (cat 3 base '/notes') '{"folder":2,"title":"L","body":"v0"}')
+  ;<  svc=vase  b  get-save
+  =/  sc=state-13:n  !<(state-13:n svc)
+  =/  entry-c  (~(get by books.sc) f)
+  ::  update body via PUT (no expectedRevision)
+  ;<  *  b  (http-req-v1 %'PUT' hdr (cat 3 base '/notes/3') '{"body":"v1"}')
+  ;<  svu=vase  b  get-save
+  =/  su=state-13:n  !<(state-13:n svu)
+  ::  delete via DELETE
+  ;<  *  b  (http-req-v1 %'DELETE' hdr (cat 3 base '/notes/3') '')
+  ;<  svd=vase  b  get-save
+  =/  sd=state-13:n  !<(state-13:n svd)
+  |=  s2=state
+  ?~  api-key.s0  |+['no api-key']~
+  ?~  entry-c  |+['notebook gone after create-note']~
+  ?.  (~(has by notes.notebook-state.u.entry-c) 3)
+    |+['note not created via REST POST']~
+  =/  entry-u  (~(get by books.su) f)
+  ?~  entry-u  |+['notebook gone after PUT']~
+  ?~  note-u=(~(get by notes.notebook-state.u.entry-u) 3)
+    |+['note gone after PUT']~
+  ?.  =(body-md.u.note-u 'v1')
+    |+~[(crip "PUT didn't update body: {<body-md.u.note-u>}")]
+  =/  entry-d  (~(get by books.sd) f)
+  ?~  entry-d  |+['notebook gone after DELETE']~
+  ?:  (~(has by notes.notebook-state.u.entry-d) 3)
+    |+['note still present after DELETE']~
   &+[~ s2]
 ::
 ::  ====  test-v1-regenerate-returns-key  ====

@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'optional-requestid-defensive-parse'
+++  dummy  'rest-writes-put-update'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -368,8 +368,12 @@
     ?:  =(%'GET' method)  (handle-v1-get-request eyre-id (slag 20 url-path) inbound-request)
     (http-error eyre-id 405 'method not allowed')
   ?:  =("/notes/~/v1/" (scag 12 url-path))
-    ::  any other /notes/~/v1/* — GET read endpoints
-    ?:  =(%'GET' method)  (handle-v1-read eyre-id url-path inbound-request)
+    ::  other /notes/~/v1/* — GET reads, POST/PATCH/DELETE first-class writes
+    ?:  =(%'GET' method)     (handle-v1-read eyre-id url-path inbound-request)
+    ::  vere's runtime HTTP server rejects PATCH (400 before reaching the
+    ::  agent), so note-body updates use PUT.
+    ?:  ?=(?(%'POST' %'PUT' %'DELETE') method)
+      (handle-v1-write eyre-id method url-path inbound-request)
     (http-error eyre-id 405 'method not allowed')
   ::  PWA-related static assets: manifest, service worker, icons.
   ::  Each returns [body content-type] or ~. Served scoped under
@@ -565,6 +569,98 @@
     ?~  jon  (http-error eyre-id 404 'not found')
     (give-json-response eyre-id u.jon)
   ==
+::
+::  +jo-str / +jo-ud: lenient json-object field accessors for the write
+::  endpoints. Return ~ when the key is absent or the wrong shape, so a
+::  cheap model sending a slightly-off body gets a 400, not a 500.
+++  jo-str
+  |=  [obj=(map @t json) k=@t]
+  ^-  (unit @t)
+  =/  v=(unit json)  (~(get by obj) k)
+  ?.  ?&(?=(^ v) ?=([%s *] u.v))  ~
+  `p.u.v
+::
+++  jo-ud
+  |=  [obj=(map @t json) k=@t]
+  ^-  (unit @ud)
+  =/  v=(unit json)  (~(get by obj) k)
+  ?.  ?&(?=(^ v) ?=([%n *] u.v))  ~
+  (rush p.u.v dem)
+::
+::  +build-write-action: translate a REST write (method + path segments +
+::  json body) into an a-notes action, or ~ if the shape isn't recognized
+::  / required fields are missing. These are the "first-class" convenience
+::  endpoints — flat bodies, no discriminated-union construction, easier
+::  for weak models than the generic submitAction.
+::
+::  PATCH note body: expectedRevision is optional. When supplied it rides
+::  through to se-update-note's strict concurrency check (same as the UI).
+::  When omitted we fall back to the note's current revision — a plain
+::  last-write-wins for callers that don't track revisions.
+++  build-write-action
+  |=  [method=@tas pax=path obj=(map @t json)]
+  ^-  (unit a-notes:n)
+  ?:  &(=(%'POST' method) ?=([%notebooks ~] pax))
+    ?~  title=(jo-str obj 'title')  ~
+    `[%create-notebook u.title]
+  ?.  ?=([%notebooks @ @ *] pax)  ~
+  ?~  host=(slaw %p i.t.pax)  ~
+  =/  =flag:n  [u.host `@tas`i.t.t.pax]
+  =/  sub=path  t.t.t.pax
+  ?+    [method sub]  ~
+  ::
+      [%'POST' [%notes ~]]
+    ?~  folder=(jo-ud obj 'folder')  ~
+    ?~  title=(jo-str obj 'title')  ~
+    =/  body-str=@t  (fall (jo-str obj 'body') '')
+    `[%notebook flag [%create-note u.folder u.title body-str]]
+  ::
+      [%'POST' [%folders ~]]
+    ?~  name=(jo-str obj 'name')  ~
+    `[%notebook flag [%create-folder (jo-ud obj 'parent') u.name]]
+  ::
+      [%'DELETE' [%notes @ ~]]
+    ?>  ?=([%notes @ ~] sub)
+    ?~  nid=(slaw %ud i.t.sub)  ~
+    `[%notebook flag [%note u.nid [%delete ~]]]
+  ::
+      [%'PUT' [%notes @ ~]]
+    ?>  ?=([%notes @ ~] sub)
+    ?~  nid=(slaw %ud i.t.sub)  ~
+    ?~  body-str=(jo-str obj 'body')  ~
+    =/  exp-rev=@ud
+      ?^  er=(jo-ud obj 'expectedRevision')  u.er
+      ::  fall back to current revision (last-write-wins)
+      ?~  entry=(~(get by books) flag)  0
+      ?~  note=(~(get by notes.notebook-state.u.entry) u.nid)  0
+      revision.u.note
+    `[%notebook flag [%note u.nid [%update u.body-str exp-rev]]]
+  ==
+::
+::  +handle-v1-write: POST/PATCH/DELETE first-class write endpoints under
+::  /notes/~/v1/notebooks[...]. Auth-gated like everything else; builds an
+::  a-notes via build-write-action and routes through the same
+::  dispatch-v1-action loop as the generic submitAction. requestId is
+::  always minted server-side here (no envelope to carry one).
+++  handle-v1-write
+  |=  [eyre-id=@ta method=@tas url-path=tape =inbound-request:eyre]
+  ^+  cor
+  ?.  (request-authorized inbound-request)
+    (http-error eyre-id 401 'unauthorized')
+  =/  pax=path  (stab (crip (weld "/" (slag 12 url-path))))
+  =/  obj=(map @t json)
+    =/  jon=(unit json)
+      ?~  body.request.inbound-request  ~
+      (de:json:html q.u.body.request.inbound-request)
+    ?.  ?&(?=(^ jon) ?=([%o *] u.jon))  ~
+    p.u.jon
+  =/  act=(unit a-notes:n)  (build-write-action method pax obj)
+  ?~  act
+    (http-error eyre-id 400 'unsupported write — check method, path, and required fields')
+  =/  rid=request-id:v1:n  `@uv`(mix eny.bowl rid-counter)
+  =.  rid-counter  +(rid-counter)
+  =.  requests  (~(put by requests) rid [rid `eyre-id %sending ~ ~ |])
+  (dispatch-v1-action [rid u.act])
 ::
 ++  watch
   |=  =(pole knot)
