@@ -1733,6 +1733,83 @@
     |+~[(crip "expected 401 from unauthenticated read, got {<st>}")]
   &+[~ s]
 ::
+::  +ex-get-200: GET a v1 read url with the given headers and assert 200.
+::  A 200 confirms routing matched, auth passed, and no-read-json returned
+::  data (a 404 would mean the path shape wasn't recognized).
+++  ex-get-200
+  |=  [hdrs=(list [@t @t]) url=@t]
+  =/  m  (mare ,~)
+  ^-  form:m
+  ;<  caz=(list card)  bind:m  (http-get-v1 hdrs url)
+  |=  s=state
+  ?.  =((http-status caz) `200)
+    |+~[(crip "GET {(trip url)} expected 200, got {<(http-status caz)>}")]
+  &+[~ s]
+::
+::  ====  test-v1-read-all-endpoints  ====
+::  Exercises every GET read shape (+ POST folders write) in one go. A
+::  notebook (id 1, root folder 2), a note (id 3) and a sub-folder (id 4)
+::  are set up, then each read endpoint must 200.
+++  test-v1-read-all-endpoints
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  *  b  (poke-a [%create-notebook 'AllReads'])
+  =/  f=flag:n  (nb-flag our.bowl 'AllReads' 1)
+  ;<  sv0=vase  b  get-save
+  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
+  =/  hdr=(list [@t @t])  ~[['x-api-key' key]]
+  =/  base=@t  (crip "/notes/~/v1/notebooks/{<`@p`our.bowl>}/{(trip name.f)}")
+  ::  POST note (folder 2 = root) → id 3
+  ;<  *  b  (http-req-v1 %'POST' hdr (cat 3 base '/notes') '{"folder":2,"title":"N","body":"b"}')
+  ::  POST sub-folder (parent 2) → id 4  [covers POST .../folders]
+  ;<  *  b  (http-req-v1 %'POST' hdr (cat 3 base '/folders') '{"parent":2,"name":"sub"}')
+  ;<  svw=vase  b  get-save
+  =/  sw=state-13:n  !<(state-13:n svw)
+  ::  GET every read shape
+  ;<  ~  b  (ex-get-200 hdr '/notes/~/v1/notebooks')
+  ;<  ~  b  (ex-get-200 hdr base)
+  ;<  ~  b  (ex-get-200 hdr (cat 3 base '/folders'))
+  ;<  ~  b  (ex-get-200 hdr (cat 3 base '/folders/2'))
+  ;<  ~  b  (ex-get-200 hdr (cat 3 base '/notes'))
+  ;<  ~  b  (ex-get-200 hdr (cat 3 base '/notes/3'))
+  ;<  ~  b  (ex-get-200 hdr (cat 3 base '/notes/3/history'))
+  ;<  ~  b  (ex-get-200 hdr (cat 3 base '/members'))
+  ;<  ~  b  (ex-get-200 hdr '/notes/~/v1/invites')
+  |=  s2=state
+  ?~  api-key.s0  |+['no api-key']~
+  ?~  entry=(~(get by books.sw) f)  |+['notebook gone']~
+  ::  POST .../folders created folder id 4
+  ?.  (~(has by folders.notebook-state.u.entry) 4)
+    |+['POST .../folders did not create the sub-folder']~
+  &+[~ s2]
+::
+::  ====  test-rest-write-requires-auth  ====
+::  Write endpoints reject unauthenticated callers — POST /notebooks with
+::  no cookie/key → 401 and no notebook created.
+++  test-rest-write-requires-auth
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  caz=(list card)  b
+    (http-req-v1 %'POST' ~ '/notes/~/v1/notebooks' '{"title":"NoAuthNB"}')
+  =/  f=flag:n  (nb-flag our.bowl 'NoAuthNB' 1)
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?.  =((http-status caz) `401)
+    |+~[(crip "expected 401 for unauth write, got {<(http-status caz)>}")]
+  ?:  (~(has by books.s) f)
+    |+['unauthorized write created a notebook']~
+  &+[~ s2]
+::
 ::  ====  test-v1-notebook-action-emits-cards  ====
 ::  Notebook-scoped v1 action routes through no-action-v1: must emit a host
 ::  %watch on the per-request path, a %poke with notes-command-1, and a behn
