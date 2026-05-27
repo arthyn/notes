@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'json-field-and-inline-cleanup'
+++  dummy  'give-http-helper'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -353,12 +353,7 @@
   ::  channel into agent state. JSON only because %mcp-proxy parses
   ::  cached specs with de:json:html and doesn't accept YAML.
   ?:  =("/notes/openapi.json" url-path)
-    =/  body=octs  (as-octs:mimes:html json:openapi-spec)
-    %-  emil
-    :~  [%give %fact [/http-response/[eyre-id]]~ %http-response-header !>(`response-header:http`[200 ~[['content-type' 'application/json']]])]
-        [%give %fact [/http-response/[eyre-id]]~ %http-response-data !>(`body)]
-        [%give %kick [/http-response/[eyre-id]]~ ~]
-    ==
+    (give-http eyre-id 200 'application/json' json:openapi-spec)
   ::  v1 HTTP API: POST /notes/~/v1, GET /notes/~/v1/request/<uv>,
   ::  GET /notes/~/v1/notebooks[...] + /notes/~/v1/invites (read surface)
   ?:  =("/notes/~/v1" url-path)
@@ -416,13 +411,7 @@
   =/  ct=@t
     ?^  asset  ct.u.asset
     'text/html'
-  =/  data=octs  [(met 3 body) body]
-  =/  =response-header:http  [200 ~[['content-type' ct]]]
-  %-  emil
-  :~  [%give %fact [/http-response/[eyre-id]]~ %http-response-header !>(response-header)]
-      [%give %fact [/http-response/[eyre-id]]~ %http-response-data !>(`data)]
-      [%give %kick [/http-response/[eyre-id]]~ ~]
-  ==
+  (give-http eyre-id 200 ct body)
 ::
 ::  +handle-v1-post: parse a v1 action from the POST body, register the
 ::  request with eyre-id as http-id (so the HTTP request is held open
@@ -500,12 +489,7 @@
 ++  give-json-response
   |=  [eyre-id=@ta =json]
   ^+  cor
-  =/  body=octs  (as-octs:mimes:html (en:json:html json))
-  %-  emil
-  :~  [%give %fact [/http-response/[eyre-id]]~ %http-response-header !>(`response-header:http`[200 ~[['content-type' 'application/json']]])]
-      [%give %fact [/http-response/[eyre-id]]~ %http-response-data !>(`body)]
-      [%give %kick [/http-response/[eyre-id]]~ ~]
-  ==
+  (give-http eyre-id 200 'application/json' (en:json:html json))
 ::
 ::  +read-notebooks-json: the cross-cutting notebook list, filtered to
 ::  notebooks the caller can view. Mirrors the /x/v0/notebooks scry.
@@ -975,29 +959,31 @@
 ::
 ::  ====  HTTP / request-id helpers  ====
 ::
+::  +give-http: emit a complete HTTP response on the eyre-id's response
+::  path — header (status + content-type), body, and the closing kick.
+::  Every HTTP reply in this agent funnels through here.
+++  give-http
+  |=  [eyre-id=@ta code=@ud ct=@t body=@t]
+  ^+  cor
+  =/  data=octs  (as-octs:mimes:html body)
+  %-  emil
+  :~  [%give %fact [/http-response/[eyre-id]]~ %http-response-header !>(`response-header:http`[code ~[['content-type' ct]]])]
+      [%give %fact [/http-response/[eyre-id]]~ %http-response-data !>(`data)]
+      [%give %kick [/http-response/[eyre-id]]~ ~]
+  ==
+::
 ::  +http-error: emit a non-200 HTTP error response (plain text body)
 ++  http-error
   |=  [eyre-id=@ta code=@ud message=@t]
   ^+  cor
-  =/  body=octs  (as-octs:mimes:html message)
-  %-  emil
-  :~  [%give %fact [/http-response/[eyre-id]]~ %http-response-header !>(`response-header:http`[code ~[['content-type' 'text/plain']]])]
-      [%give %fact [/http-response/[eyre-id]]~ %http-response-data !>(`body)]
-      [%give %kick [/http-response/[eyre-id]]~ ~]
-  ==
+  (give-http eyre-id code 'text/plain' message)
 ::
 ::  +give-http-response: emit a 200 application/json HTTP response carrying
 ::  the encoded response.
 ++  give-http-response
   |=  [eyre-id=@ta =response:v1:n]
   ^+  cor
-  =/  =json  (response:v1:enjs:notes-json response)
-  =/  body=octs  (as-octs:mimes:html (en:json:html json))
-  %-  emil
-  :~  [%give %fact [/http-response/[eyre-id]]~ %http-response-header !>(`response-header:http`[200 ~[['content-type' 'application/json']]])]
-      [%give %fact [/http-response/[eyre-id]]~ %http-response-data !>(`body)]
-      [%give %kick [/http-response/[eyre-id]]~ ~]
-  ==
+  (give-http eyre-id 200 'application/json' (en:json:html (response:v1:enjs:notes-json response)))
 ::
 ::  +finalize-request: store terminal body in the request record, fact it on
 ::  the per-request SSE path, deliver to a held HTTP request if any, and clear
