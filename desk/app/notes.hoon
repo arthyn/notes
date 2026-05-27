@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'full-endpoint-coverage'
+++  dummy  'json-field-and-inline-cleanup'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -441,12 +441,11 @@
     (http-error eyre-id 401 'unauthorized')
   ?~  body.request.inbound-request
     (http-error eyre-id 400 'missing body')
-  =/  jon=(unit json)  (de:json:html q.u.body.request.inbound-request)
-  ?~  jon  (http-error eyre-id 400 'invalid json')
+  ?~  jon=(de:json:html q.u.body.request.inbound-request)
+    (http-error eyre-id 400 'invalid json')
   ?.  ?=([%o *] u.jon)
     (http-error eyre-id 400 'body must be a json object')
-  =/  act-j=(unit json)  (~(get by p.u.jon) 'action')
-  ?~  act-j
+  ?~  act-j=(~(get by p.u.jon) 'action')
     (http-error eyre-id 400 'missing `action` field')
   ::  parse the a-notes; a bad action shape is a client error, not a 500
   =/  a-res=(each a-notes:n tang)
@@ -517,21 +516,19 @@
 ::  so its src.bowl is not our.bowl and would filter out everything.
 ++  read-notebooks-json
   ^-  json
-  =/  summaries=(list notebook-summary:n)
-    %+  murn  ~(tap by books)
-    |=  [=flag:n [* =notebook-state:n]]
-    ?.  (can-view-flag flag our.bowl)  ~
-    `[flag [notebook visibility]:notebook-state]
-  (notebook-summaries:enjs:notes-json summaries)
+  %-  notebook-summaries:enjs:notes-json
+  %+  murn  ~(tap by books)
+  |=  [=flag:n [* =notebook-state:n]]
+  ?.  (can-view-flag flag our.bowl)  ~
+  `[flag [notebook visibility]:notebook-state]
 ::
 ::  +read-invites-json: pending invites we've received.
 ++  read-invites-json
   ^-  json
-  =/  recs=(list invite-record:n)
-    %+  turn  ~(tap by invites)
-    |=  [=flag:n info=invite-info:n]
-    [flag info]
-  (invite-records:enjs:notes-json recs)
+  %-  invite-records:enjs:notes-json
+  %+  turn  ~(tap by invites)
+  |=  [=flag:n info=invite-info:n]
+  [flag info]
 ::
 ::  +handle-v1-read: GET read surface under /notes/~/v1/. Auth-gated the
 ::  same as POST (cookie OR X-Api-Key) so a bot with only a key can read
@@ -565,26 +562,26 @@
     =/  =flag:n  [(slav %p i.t.pax) `@tas`i.t.t.pax]
     ?~  (~(get by books) flag)
       (http-error eyre-id 404 'notebook not found')
-    =/  jon=(unit json)  (no-read-json:(no-abed:no-core flag) t.t.t.pax)
-    ?~  jon  (http-error eyre-id 404 'not found')
+    ?~  jon=(no-read-json:(no-abed:no-core flag) t.t.t.pax)
+      (http-error eyre-id 404 'not found')
     (give-json-response eyre-id u.jon)
   ==
 ::
-::  +jo-str / +jo-ud: lenient json-object field accessors for the write
-::  endpoints. Return ~ when the key is absent or the wrong shape, so a
-::  cheap model sending a slightly-off body gets a 400, not a 500.
-++  jo-str
-  |=  [obj=(map @t json) k=@t]
+::  +field-cord / +field-ud: lenient reads of one key from a json object
+::  for the write endpoints. Return ~ on a missing key or wrong json shape,
+::  so a cheap model sending a slightly-off body gets a 400, not a 500.
+++  field-cord
+  |=  [obj=(map @t json) key=@t]
   ^-  (unit @t)
-  =/  v=(unit json)  (~(get by obj) k)
-  ?.  ?&(?=(^ v) ?=([%s *] u.v))  ~
+  ?~  v=(~(get by obj) key)  ~
+  ?.  ?=([%s *] u.v)  ~
   `p.u.v
 ::
-++  jo-ud
-  |=  [obj=(map @t json) k=@t]
+++  field-ud
+  |=  [obj=(map @t json) key=@t]
   ^-  (unit @ud)
-  =/  v=(unit json)  (~(get by obj) k)
-  ?.  ?&(?=(^ v) ?=([%n *] u.v))  ~
+  ?~  v=(~(get by obj) key)  ~
+  ?.  ?=([%n *] u.v)  ~
   (rush p.u.v dem)
 ::
 ::  +build-write-action: translate a REST write (method + path segments +
@@ -601,7 +598,7 @@
   |=  [method=@tas pax=path obj=(map @t json)]
   ^-  (unit a-notes:n)
   ?:  &(=(%'POST' method) ?=([%notebooks ~] pax))
-    ?~  title=(jo-str obj 'title')  ~
+    ?~  title=(field-cord obj 'title')  ~
     `[%create-notebook u.title]
   ?.  ?=([%notebooks @ @ *] pax)  ~
   ?~  host=(slaw %p i.t.pax)  ~
@@ -610,14 +607,14 @@
   ?+    [method sub]  ~
   ::
       [%'POST' [%notes ~]]
-    ?~  folder=(jo-ud obj 'folder')  ~
-    ?~  title=(jo-str obj 'title')  ~
-    =/  body-str=@t  (fall (jo-str obj 'body') '')
+    ?~  folder=(field-ud obj 'folder')  ~
+    ?~  title=(field-cord obj 'title')  ~
+    =/  body-str=@t  (fall (field-cord obj 'body') '')
     `[%notebook flag [%create-note u.folder u.title body-str]]
   ::
       [%'POST' [%folders ~]]
-    ?~  name=(jo-str obj 'name')  ~
-    `[%notebook flag [%create-folder (jo-ud obj 'parent') u.name]]
+    ?~  name=(field-cord obj 'name')  ~
+    `[%notebook flag [%create-folder (field-ud obj 'parent') u.name]]
   ::
       [%'DELETE' [%notes @ ~]]
     ?>  ?=([%notes @ ~] sub)
@@ -627,9 +624,9 @@
       [%'PUT' [%notes @ ~]]
     ?>  ?=([%notes @ ~] sub)
     ?~  nid=(slaw %ud i.t.sub)  ~
-    ?~  body-str=(jo-str obj 'body')  ~
+    ?~  body-str=(field-cord obj 'body')  ~
     =/  exp-rev=@ud
-      ?^  er=(jo-ud obj 'expectedRevision')  u.er
+      ?^  er=(field-ud obj 'expectedRevision')  u.er
       ::  fall back to current revision (last-write-wins)
       ?~  entry=(~(get by books) flag)  0
       ?~  note=(~(get by notes.notebook-state.u.entry) u.nid)  0
@@ -654,8 +651,7 @@
       (de:json:html q.u.body.request.inbound-request)
     ?.  ?&(?=(^ jon) ?=([%o *] u.jon))  ~
     p.u.jon
-  =/  act=(unit a-notes:n)  (build-write-action method pax obj)
-  ?~  act
+  ?~  act=(build-write-action method pax obj)
     (http-error eyre-id 400 'unsupported write — check method, path, and required fields')
   =/  rid=request-id:v1:n  `@uv`(mix eny.bowl rid-counter)
   =.  rid-counter  +(rid-counter)
