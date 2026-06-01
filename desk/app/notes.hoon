@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'fix-folder-name-mcp-collision'
+++  dummy  'put-note-rename-move'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -624,14 +624,20 @@
       [%'PUT' [%notes @ ~]]
     ?>  ?=([%notes @ ~] sub)
     ?~  nid=(slaw %ud i.t.sub)  ~
-    ?~  body-str=(field-cord obj 'body')  ~
-    =/  exp-rev=@ud
-      ?^  er=(field-ud obj 'expectedRevision')  u.er
-      ::  fall back to current revision (last-write-wins)
-      ?~  entry=(~(get by books) flag)  0
-      ?~  note=(~(get by notes.notebook-state.u.entry) u.nid)  0
-      revision.u.note
-    `[%notebook flag [%note u.nid [%update u.body-str exp-rev]]]
+    ::  body present → %update (revision-checked content edit).
+    ::  else title or folder present → %modify (rename and/or move).
+    ?^  body-str=(field-cord obj 'body')
+      =/  exp-rev=@ud
+        ?^  er=(field-ud obj 'expectedRevision')  u.er
+        ::  fall back to current revision (last-write-wins)
+        ?~  entry=(~(get by books) flag)  0
+        ?~  note=(~(get by notes.notebook-state.u.entry) u.nid)  0
+        revision.u.note
+      `[%notebook flag [%note u.nid [%update u.body-str exp-rev]]]
+    =/  new-title=(unit @t)   (field-cord obj 'title')
+    =/  new-folder=(unit @ud)  (field-ud obj 'folder')
+    ?:  &(?=(~ new-title) ?=(~ new-folder))  ~
+    `[%notebook flag [%note u.nid [%modify new-title new-folder]]]
   ==
 ::
 ::  +handle-v1-write: POST/PATCH/DELETE first-class write endpoints under
@@ -1570,6 +1576,7 @@
       %move     (se-move-note cmd)
       %delete   (se-delete-note cmd)
       %update   (se-update-note cmd)
+      %modify   (se-modify-note cmd)
       %publish  se-core  ::  handled pre-dispatch (local-only)
       %unpublish  se-core
       %restore  (se-restore-note cmd)
@@ -1758,6 +1765,31 @@
         updated-by  src.bowl
         updated-at  now.bowl
       ==
+    =.  notes.notebook-state
+      (~(put by notes.notebook-state) nid note)
+    (se-update [%note nid [%updated note]])
+  ::
+  ::  +se-modify-note: REST PUT path. Applies whichever of title / folder
+  ::  is provided; rejects an empty modify and a move into a folder that
+  ::  doesn't exist. Revision is NOT bumped (matches %rename / %move).
+  ::  Body updates stay on %update so the revision-check semantics stay
+  ::  exclusive to content edits.
+  ++  se-modify-note
+    |=  cmd=c-cmd:n
+    ^+  se-core
+    ?>  ?=(%note -.c-notebook.cmd)
+    ?>  ?=(%modify -.a-note.c-notebook.cmd)
+    ?>  (se-can-edit src.bowl)
+    =*  nid  id.c-notebook.cmd
+    =*  upd  a-note.c-notebook.cmd
+    ?>  |(?=(^ title.upd) ?=(^ folder.upd))
+    =/  =note:n  (~(got by notes.notebook-state) nid)
+    =?  note  ?=(^ title.upd)
+      note(title u.title.upd)
+    =?  note  ?=(^ folder.upd)
+      ?>  (~(has by folders.notebook-state) u.folder.upd)
+      note(folder-id u.folder.upd)
+    =.  note  note(updated-at now.bowl, updated-by src.bowl)
     =.  notes.notebook-state
       (~(put by notes.notebook-state) nid note)
     (se-update [%note nid [%updated note]])

@@ -719,8 +719,8 @@
         }
       },
       "put": {
-        "summary": "Update a note's body",
-        "description": "Replaces the note body. `expectedRevision` is optional: supply it\nfor optimistic-concurrency (the host rejects the write if the\nnote advanced past it, exactly like the UI's autosave); omit it\nfor last-write-wins (the server uses the note's current revision).\n\nUses PUT, not PATCH — vere's runtime HTTP server rejects PATCH\nbefore it reaches the agent.\n",
+        "summary": "Update a note (body, title, or folder)",
+        "description": "Updates a note. Two distinct modes based on what's in the body:\n\n- **Content edit**: provide `body` (with optional `expectedRevision`\n  for optimistic-concurrency, exactly like the UI's autosave;\n  omit it for last-write-wins). Bumps the note's revision.\n- **Metadata edit**: provide `title` and/or `folder` (rename\n  and/or move). Does *not* bump revision.\n\nIf `body` is present, the call is treated as a content edit and\n`title` / `folder` are ignored. To rename or move alongside a\ncontent edit, send two requests.\n\nUses PUT, not PATCH — vere's runtime HTTP server rejects PATCH\nbefore it reaches the agent.\n",
         "operationId": "updateNote",
         "parameters": [
           {
@@ -754,16 +754,25 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": [
-                  "body"
-                ],
                 "properties": {
                   "body": {
-                    "type": "string"
+                    "type": "string",
+                    "nullable": true
                   },
                   "expectedRevision": {
                     "type": "integer",
-                    "description": "Optional; enables conflict detection when present"
+                    "nullable": true,
+                    "description": "Optional content-edit guard"
+                  },
+                  "title": {
+                    "type": "string",
+                    "nullable": true,
+                    "description": "New title (metadata-edit mode)"
+                  },
+                  "folder": {
+                    "type": "integer",
+                    "nullable": true,
+                    "description": "New parent folder id (metadata-edit mode)"
                   }
                 }
               }
@@ -782,7 +791,9 @@
             }
           },
           "400": {
-            "description": "Missing body"
+            "description": "Empty body (no body",
+            "no title": null,
+            "no folder)": null
           },
           "401": {
             "description": "Unauthorized"

@@ -146,6 +146,10 @@
       [%move folder=@ud]
       [%delete ~]
       [%update body=@t expected-revision=@ud]
+      ::  %modify: REST-friendly combined rename+move. Either or both
+      ::  fields may be set; body updates stay on %update so the
+      ::  revision-check semantics don't get tangled with metadata edits.
+      [%modify title=(unit @t) folder=(unit @ud)]
       [%publish html=@t]
       [%unpublish ~]
       [%restore rev=@ud]

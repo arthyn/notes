@@ -1854,6 +1854,41 @@
     |+~[(crip "PUT didn't move: parent={<parent-folder-id.u.fld>}")]
   &+[~ s2]
 ::
+::  ====  test-rest-put-note-rename-and-move  ====
+::  PUT /notes/{id} with title + folder (no body) renames and moves the
+::  note in one atomic edit. Setup: notebook 1, root 2, sub=3 under root,
+::  note=4 under root. PUT note 4 → new title + parent 3.
+++  test-rest-put-note-rename-and-move
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  *  b  (poke-a [%create-notebook 'PutNote'])
+  =/  f=flag:n  (nb-flag our.bowl 'PutNote' 1)
+  ;<  *  b  (poke-a [%notebook f [%create-folder `2 'sub']])
+  ;<  *  b  (poke-a [%notebook f [%create-note 2 'old' 'b']])
+  ;<  sv0=vase  b  get-save
+  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
+  =/  hdr=(list [@t @t])  ~[['x-api-key' key]]
+  =/  base=@t  (crip "/notes/~/v1/notebooks/{<`@p`our.bowl>}/{(trip name.f)}")
+  ;<  *  b
+    (http-req-v1 %'PUT' hdr (cat 3 base '/notes/4') '{"title":"new","folder":3}')
+  ;<  svu=vase  b  get-save
+  =/  su=state-13:n  !<(state-13:n svu)
+  |=  s2=state
+  ?~  api-key.s0  |+['no api-key']~
+  ?~  entry=(~(get by books.su) f)  |+['notebook gone']~
+  ?~  note=(~(get by notes.notebook-state.u.entry) 4)
+    |+['note 4 gone']~
+  ?.  =('new' title.u.note)
+    |+~[(crip "PUT didn't rename: {<title.u.note>}")]
+  ?.  =(3 folder-id.u.note)
+    |+~[(crip "PUT didn't move: folder={<folder-id.u.note>}")]
+  &+[~ s2]
+::
 ::  ====  test-rest-delete-folder-recursive  ====
 ::  DELETE /folders/{id}?recursive=true removes folder + descendants.
 ::  Setup: A=3 under root, leaf=4 under A. DELETE A with ?recursive=true.

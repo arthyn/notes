@@ -562,6 +562,9 @@
       [%unpublish ~]
         %'restore'
       [%restore ((ot ~[['rev' ni]]) jon)]
+        %'modify'
+      :-  %modify
+      ((ot ~[['title' (mu so)] ['folder' (mu ni)]]) jon)
     ==
   ::
   ::  +a-notebook: parse a-notebook action object {type, ...fields}
