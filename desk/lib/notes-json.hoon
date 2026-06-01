@@ -18,6 +18,8 @@
     %-  pairs
     :~  ['id' (numb id.nb)]
         ['title' s+title.nb]
+        ::  rootFolderId is deterministically id+1 (set by se-create-notebook)
+        ['rootFolderId' (numb +(id.nb))]
         ['createdBy' s+(scot %p created-by.nb)]
         ['createdAt' (numb (da-to-unix created-at.nb))]
         ['updatedAt' (numb (da-to-unix updated-at.nb))]

@@ -340,7 +340,7 @@
                   },
                   "parent": {
                     "type": "integer",
-                    "description": "Parent folder id; omit for root."
+                    "description": "Parent folder id. If omitted (or null), the folder lands under the notebook's root (`notebook.rootFolderId`). An explicit id that doesn't exist in the notebook is rejected."
                   }
                 }
               }
@@ -1901,6 +1901,7 @@
         "required": [
           "id",
           "title",
+          "rootFolderId",
           "createdBy",
           "createdAt",
           "updatedAt",
@@ -1912,6 +1913,10 @@
           },
           "title": {
             "type": "string"
+          },
+          "rootFolderId": {
+            "type": "integer",
+            "description": "Id of the notebook's root folder. Pass this as `parent` when creating a folder/note at the top level. Equal to `id + 1`."
           },
           "createdBy": {
             "type": "string"

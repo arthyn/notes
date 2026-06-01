@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'give-http-helper'
+++  dummy  'create-folder-defaults-to-root'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -1551,15 +1551,26 @@
       %restore  (se-restore-note cmd)
     ==
   ::
+  ::  +se-create-folder: bug-prone callers (LLMs, raw pokes) frequently
+  ::  omit `parent` — the type allows ~, but a folder with parent=~ is
+  ::  structurally identical to the root and shows up as an orphan
+  ::  sibling. We resolve ~ to the notebook's root (root-id = nb.id + 1,
+  ::  a deterministic invariant from se-create-notebook), and require the
+  ::  resolved parent to actually exist so a bad explicit id crashes
+  ::  loudly instead of producing a dangling reference.
   ++  se-create-folder
     |=  cmd=c-cmd:n
     ^+  se-core
     ?>  ?=(%create-folder -.c-notebook.cmd)
     ?>  (se-can-edit src.bowl)
+    =/  parent-id=@ud
+      ?^  parent.c-notebook.cmd  u.parent.c-notebook.cmd
+      +(id.notebook.notebook-state)
+    ?>  (~(has by folders.notebook-state) parent-id)
     =/  fid=@ud  +(next-id)
     =.  next-id  fid
     =/  =folder:n
-      [fid id.notebook.notebook-state name.c-notebook.cmd parent.c-notebook.cmd [src now now src]:bowl]
+      [fid id.notebook.notebook-state name.c-notebook.cmd `parent-id [src now now src]:bowl]
     =.  folders.notebook-state
       (~(put by folders.notebook-state) fid folder)
     (se-update [%folder fid [%created folder]])

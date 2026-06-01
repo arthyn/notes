@@ -421,6 +421,50 @@
   ;<  sub=cage  b  (peek-fld f 4)
   (ex-mark sub %notes-folder)
 ::
+::  ====  test-create-folder-null-parent-uses-root  ====
+::  parent=~ resolves to the notebook's root (nb.id + 1 = 2). After
+::  notebook id=1 + root id=2, the new folder gets fid=3 with parent=2.
+++  test-create-folder-null-parent-uses-root
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  *  b  (poke-a [%create-notebook 'NB'])
+  =/  f=flag:n  (nb-flag our.bowl 'NB' 1)
+  ;<  *  b  (poke-a [%notebook f [%create-folder ~ 'Orphan?']])
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?~  entry=(~(get by books.s) f)  |+['notebook missing']~
+  ?~  fld=(~(get by folders.notebook-state.u.entry) 3)
+    |+['folder fid=3 not created']~
+  ?.  =(`2 parent-folder-id.u.fld)
+    |+~[(crip "expected parent=2 (root), got {<parent-folder-id.u.fld>}")]
+  &+[~ s2]
+::
+::  ====  test-create-folder-bad-parent-rejected  ====
+::  parent points at an id that doesn't exist → crash. ex-fail ensures
+::  the poke failed AND folders.notebook-state is unchanged.
+++  test-create-folder-bad-parent-rejected
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  *  b  (poke-a [%create-notebook 'NB'])
+  =/  f=flag:n  (nb-flag our.bowl 'NB' 1)
+  ;<  ~  b  (ex-fail (poke-a [%notebook f [%create-folder `999 'Bad']]))
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?~  entry=(~(get by books.s) f)  |+['notebook missing']~
+  ?.  =(1 ~(wyt by folders.notebook-state.u.entry))
+    |+['rejected poke should not have created a folder']~
+  &+[~ s2]
+::
 ::  ====  test-rename-folder  ====
 ++  test-rename-folder
   %-  eval-mare

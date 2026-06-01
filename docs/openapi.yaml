@@ -216,7 +216,11 @@ paths:
                 name: { type: string }
                 parent:
                   type: integer
-                  description: Parent folder id; omit for root.
+                  description: >-
+                    Parent folder id. If omitted (or null), the folder lands
+                    under the notebook's root (`notebook.rootFolderId`). An
+                    explicit id that doesn't exist in the notebook is
+                    rejected.
       responses:
         "200":
           description: Created — response carries the folder-created update
@@ -910,10 +914,15 @@ components:
           note-update: "#/components/schemas/UNoteUpdate"
     Notebook:
       type: object
-      required: [id, title, createdBy, createdAt, updatedAt, updatedBy]
+      required: [id, title, rootFolderId, createdBy, createdAt, updatedAt, updatedBy]
       properties:
         id: { type: integer }
         title: { type: string }
+        rootFolderId:
+          type: integer
+          description: >-
+            Id of the notebook's root folder. Pass this as `parent` when
+            creating a folder/note at the top level. Equal to `id + 1`.
         createdBy: { type: string }
         createdAt: { type: integer, description: Unix seconds }
         updatedAt: { type: integer }
