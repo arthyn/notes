@@ -1818,6 +1818,73 @@
     |+['note still present after DELETE']~
   &+[~ s2]
 ::
+::  ====  test-rest-put-folder-rename-and-move  ====
+::  PUT /folders/{id} with both name and parent applies both changes
+::  in one update. Setup: notebook 1, root 2; create sub-A=3 under root,
+::  sub-B=4 under root; PUT folder 3 with new name + new parent=4. Expect
+::  folder 3 to be renamed and re-parented under 4.
+++  test-rest-put-folder-rename-and-move
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  *  b  (poke-a [%create-notebook 'PutFld'])
+  =/  f=flag:n  (nb-flag our.bowl 'PutFld' 1)
+  ;<  *  b  (poke-a [%notebook f [%create-folder `2 'A']])
+  ;<  *  b  (poke-a [%notebook f [%create-folder `2 'B']])
+  ;<  sv0=vase  b  get-save
+  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
+  =/  hdr=(list [@t @t])  ~[['x-api-key' key]]
+  =/  base=@t  (crip "/notes/~/v1/notebooks/{<`@p`our.bowl>}/{(trip name.f)}")
+  ;<  *  b
+    (http-req-v1 %'PUT' hdr (cat 3 base '/folders/3') '{"folderName":"A2","parent":4}')
+  ;<  svu=vase  b  get-save
+  =/  su=state-13:n  !<(state-13:n svu)
+  |=  s2=state
+  ?~  api-key.s0  |+['no api-key']~
+  ?~  entry=(~(get by books.su) f)  |+['notebook gone']~
+  ?~  fld=(~(get by folders.notebook-state.u.entry) 3)
+    |+['folder 3 gone']~
+  ?.  =('A2' name.u.fld)
+    |+~[(crip "PUT didn't rename: {<name.u.fld>}")]
+  ?.  =(`4 parent-folder-id.u.fld)
+    |+~[(crip "PUT didn't move: parent={<parent-folder-id.u.fld>}")]
+  &+[~ s2]
+::
+::  ====  test-rest-delete-folder-recursive  ====
+::  DELETE /folders/{id}?recursive=true removes folder + descendants.
+::  Setup: A=3 under root, leaf=4 under A. DELETE A with ?recursive=true.
+++  test-rest-delete-folder-recursive
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  *  b  (poke-a [%create-notebook 'DelFld'])
+  =/  f=flag:n  (nb-flag our.bowl 'DelFld' 1)
+  ;<  *  b  (poke-a [%notebook f [%create-folder `2 'A']])
+  ;<  *  b  (poke-a [%notebook f [%create-folder `3 'leaf']])
+  ;<  sv0=vase  b  get-save
+  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
+  =/  hdr=(list [@t @t])  ~[['x-api-key' key]]
+  =/  base=@t  (crip "/notes/~/v1/notebooks/{<`@p`our.bowl>}/{(trip name.f)}")
+  ;<  *  b
+    (http-req-v1 %'DELETE' hdr (cat 3 base '/folders/3?recursive=true') '')
+  ;<  svd=vase  b  get-save
+  =/  sd=state-13:n  !<(state-13:n svd)
+  |=  s2=state
+  ?~  entry=(~(get by books.sd) f)  |+['notebook gone']~
+  ?:  (~(has by folders.notebook-state.u.entry) 3)
+    |+['folder 3 still present after recursive DELETE']~
+  ?:  (~(has by folders.notebook-state.u.entry) 4)
+    |+['leaf folder still present after recursive DELETE']~
+  &+[~ s2]
+::
 ::  ====  test-v1-regenerate-returns-key  ====
 ::  %regenerate-api-key must finalize with the new key in an %api-key body.
 ++  test-v1-regenerate-returns-key
@@ -1915,7 +1982,7 @@
   ::  POST note (folder 2 = root) → id 3
   ;<  *  b  (http-req-v1 %'POST' hdr (cat 3 base '/notes') '{"folder":2,"title":"N","body":"b"}')
   ::  POST sub-folder (parent 2) → id 4  [covers POST .../folders]
-  ;<  *  b  (http-req-v1 %'POST' hdr (cat 3 base '/folders') '{"parent":2,"name":"sub"}')
+  ;<  *  b  (http-req-v1 %'POST' hdr (cat 3 base '/folders') '{"parent":2,"folderName":"sub"}')
   ;<  svw=vase  b  get-save
   =/  sw=state-13:n  !<(state-13:n svw)
   ::  GET every read shape

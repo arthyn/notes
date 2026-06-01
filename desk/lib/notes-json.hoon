@@ -535,6 +535,9 @@
       [%move ((ot ~[['newParent' ni]]) jon)]
         %'delete'
       [%delete ((ot ~[['recursive' bo]]) jon)]
+        %'update'
+      :-  %update
+      ((ot ~[['name' (mu so)] ['parent' (mu ni)]]) jon)
     ==
   ::
   ::  +a-note: parse a-note action object {type, ...fields}

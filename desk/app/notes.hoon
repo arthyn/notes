@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'create-folder-defaults-to-root'
+++  dummy  'fix-folder-name-mcp-collision'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -579,7 +579,7 @@
 ::  When omitted we fall back to the note's current revision — a plain
 ::  last-write-wins for callers that don't track revisions.
 ++  build-write-action
-  |=  [method=@tas pax=path obj=(map @t json)]
+  |=  [method=@tas pax=path obj=(map @t json) recursive=?]
   ^-  (unit a-notes:n)
   ?:  &(=(%'POST' method) ?=([%notebooks ~] pax))
     ?~  title=(field-cord obj 'title')  ~
@@ -597,8 +597,24 @@
     `[%notebook flag [%create-note u.folder u.title body-str]]
   ::
       [%'POST' [%folders ~]]
-    ?~  name=(field-cord obj 'name')  ~
-    `[%notebook flag [%create-folder (field-ud obj 'parent') u.name]]
+    ::  `folderName` rather than `name` because the path already has a
+    ::  `{name}` (notebook slug) — mcp-proxy flattens path + body into a
+    ::  single tool input, and a colliding `name` would conflate the two.
+    ?~  fname=(field-cord obj 'folderName')  ~
+    `[%notebook flag [%create-folder (field-ud obj 'parent') u.fname]]
+  ::
+      [%'PUT' [%folders @ ~]]
+    ?>  ?=([%folders @ ~] sub)
+    ?~  fid=(slaw %ud i.t.sub)  ~
+    =/  new-name=(unit @t)     (field-cord obj 'folderName')
+    =/  new-parent=(unit @ud)  (field-ud obj 'parent')
+    ?:  &(?=(~ new-name) ?=(~ new-parent))  ~
+    `[%notebook flag [%folder u.fid [%update new-name new-parent]]]
+  ::
+      [%'DELETE' [%folders @ ~]]
+    ?>  ?=([%folders @ ~] sub)
+    ?~  fid=(slaw %ud i.t.sub)  ~
+    `[%notebook flag [%folder u.fid [%delete recursive]]]
   ::
       [%'DELETE' [%notes @ ~]]
     ?>  ?=([%notes @ ~] sub)
@@ -635,7 +651,14 @@
       (de:json:html q.u.body.request.inbound-request)
     ?.  ?&(?=(^ jon) ?=([%o *] u.jon))  ~
     p.u.jon
-  ?~  act=(build-write-action method pax obj)
+  ::  parse ?recursive=true from the original query string (url-path is
+  ::  already stripped). Only meaningful for DELETE /folders/{id}.
+  =/  recursive=?
+    =/  url-tape=tape  (trip url.request.inbound-request)
+    =/  qi=(unit @ud)  (find "?" url-tape)
+    ?~  qi  |
+    ?=(^ (find "recursive=true" (slag +(u.qi) url-tape)))
+  ?~  act=(build-write-action method pax obj recursive)
     (http-error eyre-id 400 'unsupported write — check method, path, and required fields')
   =/  rid=request-id:v1:n  `@uv`(mix eny.bowl rid-counter)
   =.  rid-counter  +(rid-counter)
@@ -1535,6 +1558,7 @@
       %rename  (se-rename-folder cmd)
       %move    (se-move-folder cmd)
       %delete  (se-delete-folder cmd)
+      %update  (se-update-folder cmd)
     ==
   ::
   ++  se-dispatch-note
@@ -1603,6 +1627,32 @@
       (se-subtree-folder-ids fid)
     ?<  (~(has in subtree) new-parent)
     =.  fld  fld(parent-folder-id `new-parent, updated-at now.bowl, updated-by src.bowl)
+    =.  folders.notebook-state
+      (~(put by folders.notebook-state) fid fld)
+    (se-update [%folder fid [%updated fld]])
+  ::
+  ::  +se-update-folder: REST PUT path. Applies whichever of name / parent
+  ::  is provided. Bails if both are ~ — a PUT that touches nothing is a
+  ::  caller bug (clearer than emitting a phantom "updated" fact).
+  ++  se-update-folder
+    |=  cmd=c-cmd:n
+    ^+  se-core
+    ?>  ?=(%folder -.c-notebook.cmd)
+    ?>  ?=(%update -.a-folder.c-notebook.cmd)
+    ?>  (se-can-edit src.bowl)
+    =*  fid  id.c-notebook.cmd
+    =*  upd  a-folder.c-notebook.cmd
+    ?>  |(?=(^ name.upd) ?=(^ parent.upd))
+    =/  fld=folder:n
+      (~(got by folders.notebook-state) fid)
+    =?  fld  ?=(^ name.upd)
+      fld(name u.name.upd)
+    =?  fld  ?=(^ parent.upd)
+      =/  subtree=(set @ud)  (se-subtree-folder-ids fid)
+      ?<  (~(has in subtree) u.parent.upd)
+      ?>  (~(has by folders.notebook-state) u.parent.upd)
+      fld(parent-folder-id `u.parent.upd)
+    =.  fld  fld(updated-at now.bowl, updated-by src.bowl)
     =.  folders.notebook-state
       (~(put by folders.notebook-state) fid fld)
     (se-update [%folder fid [%updated fld]])

@@ -134,6 +134,9 @@
   $%  [%rename name=@t]
       [%move new-parent=@ud]
       [%delete recursive=?]
+      ::  %update: REST-friendly combined rename+move. Either or both
+      ::  fields may be set; the handler is a no-op for fields left ~.
+      [%update name=(unit @t) parent=(unit @ud)]
   ==
 ::
 ::  $a-note: actions scoped to a specific note

@@ -332,11 +332,12 @@
               "schema": {
                 "type": "object",
                 "required": [
-                  "name"
+                  "folderName"
                 ],
                 "properties": {
-                  "name": {
-                    "type": "string"
+                  "folderName": {
+                    "type": "string",
+                    "description": "Name of the new folder. (Distinct from the path's `{name}` which is the notebook slug — when mcp-proxy flattens path + body fields into a single tool input, a colliding name would conflate the two.)"
                   },
                   "parent": {
                     "type": "integer",
@@ -416,6 +417,139 @@
           },
           "404": {
             "description": "Not found"
+          }
+        }
+      },
+      "put": {
+        "summary": "Rename and/or move a folder",
+        "description": "Provide `name`, `parent`, or both. Fields left out (or null) are unchanged. An explicit `parent` that doesn't exist in the notebook, or that would move the folder into its own subtree, is rejected.",
+        "operationId": "updateFolder",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "folderName": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "parent": {
+                    "type": "integer",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated — response carries the folder-updated update",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Empty body (no name",
+            "no parent)": null
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Notebook or folder not found"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a folder",
+        "description": "Default refuses if the folder has children; pass `?recursive=true` to delete the folder and everything beneath it.",
+        "operationId": "deleteFolder",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "recursive",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted — response carries the folder-deleted update",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Notebook or folder not found"
+          },
+          "409": {
+            "description": "Non-empty folder without ?recursive=true"
           }
         }
       }
