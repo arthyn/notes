@@ -29,3 +29,10 @@ tests/playwright-report
 tests/test-results
 tests/e2e/playwright-report
 tests/e2e/test-results
+
+# Rendered API spec previews (build artifacts)
+docs/openapi.html
+docs/asyncapi-html/
+# Regenerable standalone JSON of the OpenAPI spec — re-derive with
+# `npx js-yaml docs/openapi.yaml > docs/openapi.json` if you need it
+docs/openapi.json

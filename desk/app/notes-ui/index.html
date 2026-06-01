@@ -2115,23 +2115,12 @@ async function subscribeEvents() {
   startSSE();
 }
 
-// Pending pokes awaiting their eyre-channel poke-ack. The channel sends
-// back { id, response: "poke", ok: "ok" } on success or { id, response:
-// "poke", err: <tang> } on failure. Without watching for these, a poke
-// that crashes server-side (e.g. revision-mismatch) looks successful at
-// the channel layer (which only confirms enqueue) and the client happily
-// keeps marking dirty work as saved while it never lands. Critical for
-// auto-save reliability.
-const pendingPokes = new Map();
-const POKE_ACK_TIMEOUT_MS = 15000;
-
 function startSSE() {
   if (eventSource) eventSource.close();
   eventSource = new EventSource(`${BASE_URL}/~/channel/${channelId}`, { withCredentials: true });
   eventSource.onmessage = (e) => {
-    // E2E tracing: log every raw SSE message — including poke-acks —
-    // so failures show the full timeline. Gated by localStorage so prod
-    // users don't get console spam.
+    // E2E tracing: log every raw SSE message so failures show the full
+    // timeline. Gated by localStorage so prod users don't get spam.
     try {
       if (localStorage.getItem("e2e-log-sse") === "1") {
         console.log("[sse]", e.data);
@@ -2139,16 +2128,6 @@ function startSSE() {
     } catch {}
     try {
       const msg = JSON.parse(e.data);
-      // Resolve/reject the matching outstanding pokeAction first; let
-      // handleEvent only see fact/snapshot/inbox messages.
-      if (msg && msg.response === "poke" && pendingPokes.has(msg.id)) {
-        const pending = pendingPokes.get(msg.id);
-        pendingPokes.delete(msg.id);
-        clearTimeout(pending.timer);
-        if (msg.ok === "ok") pending.resolve();
-        else pending.reject(new Error(msg.err || "poke failed"));
-        return;
-      }
       handleEvent(msg);
     } catch {}
   };
@@ -2186,30 +2165,66 @@ async function poke(actions) {
 //   pokeFolderAction(folderId, { type: "rename", name })
 //   pokeNoteAction(noteId, { type: "update", body, expectedRevision })
 
-async function pokeAction(action) {
-  const id = msgId++;
-  const ack = new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      pendingPokes.delete(id);
-      reject(new Error("poke-ack timeout"));
-    }, POKE_ACK_TIMEOUT_MS);
-    pendingPokes.set(id, { resolve, reject, timer });
-  });
-  try {
-    await poke([{
-      id, action: "poke",
-      ship: SHIP.replace("~",""),
-      app: "notes",
-      mark: "notes-action",
-      json: action
-    }]);
-  } catch (e) {
-    // PUT itself failed — clean up the pending entry and rethrow.
-    const pending = pendingPokes.get(id);
-    if (pending) { clearTimeout(pending.timer); pendingPokes.delete(id); }
-    throw e;
+// generateRequestId: random @uv-formatted id for the v1 HTTP api.
+// 96 bits of entropy → base32 (Hoon's @uv alphabet) with dot separators
+// every 5 chars from the right (canonical form slav %uv expects).
+function generateRequestId() {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  let n = 0n;
+  for (const b of bytes) n = (n << 8n) | BigInt(b);
+  const raw = n.toString(32);
+  let out = "";
+  for (let i = 0; i < raw.length; i++) {
+    if (i > 0 && (raw.length - i) % 5 === 0) out += ".";
+    out += raw[i];
   }
-  await ack;
+  return "0v" + out;
+}
+
+// pokeAction: send an a-notes action through the v1 HTTP API.
+// POST /notes/~/v1 with { requestId, action }; the agent holds the
+// request open until either (a) the host's response-update arrives and
+// is forwarded back as a typed response, or (b) the per-request 20s
+// timeout fires and a %pending body is returned. We treat %ok /
+// %no-change / %pending as success — the broadcast SSE stream syncs
+// local state regardless of which terminal body we get.
+//
+// %error bodies throw with the typed errorType so callers (auto-save
+// conflict banner, etc.) can switch on the failure mode.
+async function pokeAction(action) {
+  const rid = generateRequestId();
+  let resp;
+  try {
+    resp = await fetch(`${BASE_URL}/notes/~/v1`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestId: rid, action }),
+    });
+  } catch (e) {
+    throw new Error(`network: ${e.message || e}`);
+  }
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => "");
+    throw new Error(`HTTP ${resp.status}${txt ? `: ${txt}` : ""}`);
+  }
+  let json;
+  try {
+    json = await resp.json();
+  } catch {
+    throw new Error("malformed response");
+  }
+  const body = json && json.body;
+  if (!body || !body.type) throw new Error("malformed response body");
+  if (body.type === "error") {
+    const err = new Error(body.errorType || "error");
+    err.errorType = body.errorType;
+    err.requestId = rid;
+    throw err;
+  }
+  // ok | no-change | pending — broadcast stream will sync state
+  return body;
 }
 
 async function pokeTopLevel(action) {

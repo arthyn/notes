@@ -2,12 +2,13 @@
 ::
 /-  n=notes
 /+  default-agent, dbug, verb, notes-json
-/=  ui           /lib/notes-ui
-/=  share-page   /lib/notes-share
+/=  ui            /lib/notes-ui
+/=  share-page    /lib/notes-share
+/=  openapi-spec  /lib/notes-openapi
 ::
 |%
 +$  card  card:agent:gall
-+$  current-state  state-10:n
++$  current-state  state-13:n
 --
 ::
 =|  current-state
@@ -78,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'v0.12.0'
+++  dummy  'put-note-rename-move'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -87,8 +88,13 @@
 ::
 ++  init
   ^+  cor
-  %-  emit
-  [%pass /eyre/notes %arvo %e %connect [~ /notes] %notes]
+  ::  mint an api-key on fresh install. Operators can rotate via the
+  ::  %regenerate-api-key action; %clear-api-key disables the bypass.
+  =.  api-key  `(scot %uv eny.bowl)
+  %-  emil
+  :~  [%pass /eyre/notes %arvo %e %connect [~ /notes] %notes]
+      [%pass /cleanup/requests %arvo %b %wait (add now.bowl ~m5)]
+  ==
 ::
 ::  +load: migrate old state to current state-10 via linear per-step chain.
 ::  Pattern: |^ kelt with =? chain + per-step arms (tloncorp/homestead style).
@@ -106,12 +112,25 @@
   =?  old  ?=(%7 -.old)  (state-7-to-8 old)
   =?  old  ?=(%8 -.old)  (state-8-to-9 old)
   =?  old  ?=(%9 -.old)  (state-9-to-10 old)
-  ?>  ?=(%10 -.old)
+  =?  old  ?=(%10 -.old)  (state-10-to-11 old)
+  =?  old  ?=(%11 -.old)  (state-11-to-12 old)
+  =?  old  ?=(%12 -.old)  (state-12-to-13 old)
+  ?>  ?=(%13 -.old)
   =.  state  old
-  cor
+  ::  ships migrating from state-11 land here with api-key=~; mint one
+  ::  so the bypass is usable out of the box. Operators can rotate or
+  ::  clear afterward.
+  =?  api-key.state  ?=(~ api-key.state)  `(scot %uv eny.bowl)
+  ::  start request cleanup timer (idempotent: stacking timers is fine,
+  ::  each cleanup pass is a no-op on an empty/clean requests map)
+  %-  emit
+  [%pass /cleanup/requests %arvo %b %wait (add now.bowl ~m5)]
   ::
   +$  any-state
-    $%  state-10:n
+    $%  state-13:n
+        state-12:n
+        state-11:n
+        state-10:n
         state-9:n
         state-8:n
         state-7:n
@@ -243,6 +262,24 @@
       =/  =flag:n  (fall (~(get by xlat) f) [ship.f `@tas`name.f])
       [flag info]
     [%10 new-books next-id.s new-pub new-invites]
+  ::
+  ++  state-10-to-11
+    ~>  %spin.['state-10-to-11']
+    |=  s=state-10:n
+    ^-  state-11:n
+    [%11 books.s next-id.s published.s invites.s ~]
+  ::
+  ++  state-11-to-12
+    ~>  %spin.['state-11-to-12']
+    |=  s=state-11:n
+    ^-  state-12:n
+    [%12 books.s next-id.s published.s invites.s requests.s ~]
+  ::
+  ++  state-12-to-13
+    ~>  %spin.['state-12-to-13']
+    |=  s=state-12:n
+    ^-  state-13:n
+    [%13 books.s next-id.s published.s invites.s requests.s api-key.s 0]
   --
 ::
 ++  poke
@@ -254,159 +291,85 @@
     (serve-http !<([eyre-id=@ta =inbound-request:eyre] vase))
   ::
       %notes-action
-    ::  Actions are local UI requests — they originate from our own ship.
-    ::  Cross-ship messages (host → invitee notify-invite, subscriber →
-    ::  host commands) flow via %notes-command instead.
+    ::  Legacy mark — funnel through the v1 request/response loop so
+    ::  there's a single dispatch path. Synthesizes a fresh @uv that
+    ::  mixes bowl.eny with a monotonic counter; the counter guards
+    ::  against test-agent (which doesn't advance eny between events).
+    ::  Callers that don't track responses (tests, ad-hoc dojo pokes)
+    ::  just ignore the resulting fact on /v1/request/<uv>.
     ?>  =(our.bowl src.bowl)
     =+  !<(act=action:n vase)
-    ::  switchable top-level cases first; %notebook (notebook-scoped) is meaty
-    ?.  ?=(%notebook -.act)
-      ?-  -.act
-        %create-notebook  se-abet:(se-create-notebook:(se-init:se-core act) act)
-        %join             (join-remote flag.act)
-        %leave            (leave-remote flag.act)
-        %accept-invite    (handle-accept-invite flag.act)
-        %decline-invite   (handle-decline-invite flag.act)
-      ==
-    ::  notebook-scoped: [%notebook =flag =a-notebook]
-    =/  =flag:n  flag.act
-    ?+    -.a-notebook.act
-        ::  default: send command to host (which might be us — Gall loops it back)
-      no-abet:(no-action:(no-abed:no-core flag) act)
-    ::
-        %invite
-      ::  owner sends invite to a ship — handled locally
-      (handle-send-invite flag who.a-notebook.act)
-    ::
-        %note
-      ::  %publish / %unpublish are local-only; everything else routes via no-action
-      =*  n-act  a-note.a-notebook.act
-      ?+    -.n-act
-          ::  default: send command to host
-        no-abet:(no-action:(no-abed:no-core flag) act)
-      ::
-          %publish
-        no-abet:(no-publish:(no-abed:no-core flag) id.a-notebook.act html.n-act)
-      ::
-          %unpublish
-        no-abet:(no-unpublish:(no-abed:no-core flag) id.a-notebook.act)
-      ==
-    ==
+    =/  rid=request-id:v1:n  `@uv`(mix eny.bowl rid-counter)
+    =.  rid-counter  +(rid-counter)
+    (dispatch-v1-action [rid act])
   ::
-      %notes-command
-    =+  !<(cmd=command:n vase)
+      %notes-action-1
+    ::  Cross-agent / internal poke entry. HTTP POST goes directly to
+    ::  +handle-v1-post which checks auth (eyre cookie OR X-Api-Key) and
+    ::  invokes +dispatch-v1-action without the src.bowl guard.
+    ?>  =(our.bowl src.bowl)
+    =+  !<(act=action:v1:n vase)
+    (dispatch-v1-action act)
+  ::
+      %notes-command-1
+    ::  v1 cross-ship command — wraps c-notes with a request-id.
+    =+  !<(cmd1=command:v1:n vase)
+    =/  rid  request-id.cmd1
+    =/  cmd  c-notes.cmd1
     ?-    -.cmd
         %notify-invite
-      ::  Cross-ship invite delivery — src.bowl validation lives in
-      ::  handle-notify-invite (must equal ship.flag, the inviting host).
-      (handle-notify-invite flag.cmd title.cmd src.bowl)
+      ::  apply the invite locally, then emit a %no-change response-update
+      ::  on the request path so the sender's no-agent-req-watch finalizes.
+      =.  cor  (handle-notify-invite flag.cmd title.cmd src.bowl)
+      =/  =path
+        :+  %v1  %notes
+        /(scot %p ship.flag.cmd)/[name.flag.cmd]/request/(scot %p src.bowl)/(scot %uv rid)
+      %-  give
+      [%fact ~[path] notes-response-update-1+!>(`response-update:v1:n`[rid [%no-change ~]])]
     ::
         %notebook
       =*  flag  flag.cmd
-      ::  member-join/-leave: any ship can request membership change on
-      ::  a notebook we host; se-member-join/-leave enforces visibility
-      ::  + role logic. All other commands assume the sender is already
-      ::  a member; se-poke arms re-check via se-can-edit/se-is-owner.
       ?>  =(ship.flag our.bowl)
       ?>  (~(has by books) flag)
-      se-abet:(se-poke:(se-abed:se-core flag) [flag c-notebook.cmd])
+      se-abet:(se-poke-v1:(se-abed:se-core flag) rid [flag c-notebook.cmd])
     ==
   ==
   ::
-  ::  +join-remote: initiate joining a notebook on a remote ship
-  ++  join-remote
-    |=  =flag:n
-    ^+  cor
-    ?<  =(our.bowl ship.flag)
-    ?<  (~(has by books) flag)
-    =/  placeholder-net=net:n  [%sub *@da |]
-    =/  =notebook:n
-      [0 '' ship.flag *@da *@da ship.flag]
-    =/  placeholder-nb-state=notebook-state:n
-      [notebook ~ %private ~ ~ ~]
-    =.  books
-      (~(put by books) flag [placeholder-net placeholder-nb-state])
-    ::  send %member-join command to host (wrapped in c-notes %notebook arm)
-    %-  emit
-    :+  %pass
-      /notes/join/(scot %p ship.flag)/[name.flag]
-    [%agent [ship.flag %notes] %poke notes-command+!>(`command:n`[%notebook flag [%member-join ~]])]
-  ::
-  ::  +leave-remote: leave a notebook on a remote ship.
-  ::  Tells the host to drop us from members BEFORE cancelling the watch
-  ::  so the host's `members.notebook-state` reflects reality.
-  ++  leave-remote
-    |=  =flag:n
-    ^+  cor
-    ?>  (~(has by books) flag)
-    =.  cor
-      %-  emit
-      :+  %pass
-        /notes/leave/(scot %p ship.flag)/[name.flag]
-      [%agent [ship.flag %notes] %poke notes-command+!>(`command:n`[%notebook flag [%member-leave ~]])]
-    no-abet:no-leave:(no-abed:no-core flag)
-  ::
-  ::  +handle-send-invite: owner-only, fired locally. Pre-add the target ship
-  ::  to the notebook's member list and notify their %notes agent.
-  ++  handle-send-invite
-    |=  [=flag:n who=ship]
-    ^+  cor
-    ?>  =(ship.flag our.bowl)
-    =/  entry=[* =notebook-state:n]
-      (~(got by books) flag)
-    ::  pre-add via se-core (also enforces ownership)
-    =.  cor
-      =/  cmd=c-cmd:n  [flag [%invite who]]
-      se-abet:(se-poke:(se-abed:se-core flag) cmd)
-    ::  Poke the invitee's notes agent with %notify-invite as a c-notes
-    ::  command — actions are local-only (src must equal our), so cross-
-    ::  ship invite delivery flows through the command surface. The arm
-    ::  carries the notebook title so the inbox can render it pre-join.
-    %-  emit
-    :+  %pass
-      /notes/invite/(scot %p who)/(scot %p ship.flag)/[name.flag]
-    [%agent [who %notes] %poke notes-command+!>(`command:n`[%notify-invite flag title.notebook.notebook-state.entry])]
-  ::
-  ::  +handle-notify-invite: called when a remote host pokes us with
-  ::  [%notify-invite flag title]. The sender must be the notebook host.
-  ++  handle-notify-invite
-    |=  [=flag:n title=@t from=ship]
-    ^+  cor
-    ?<  =(from our.bowl)
-    ?>  =(from ship.flag)
-    ?:  (~(has by books) flag)  cor
-    ?:  (~(has by invites) flag)  cor
-    =/  info=invite-info:n  [from now.bowl title]
-    =.  invites  (~(put by invites) flag info)
-    (give-inbox-received flag from now.bowl title)
-  ::
-  ::  +handle-accept-invite: user accepted a pending invite
-  ++  handle-accept-invite
-    |=  =flag:n
-    ^+  cor
-    ?>  =(src.bowl our.bowl)
-    =.  invites  (~(del by invites) flag)
-    =.  cor  (give-inbox-removed flag)
-    ?:  (~(has by books) flag)  cor
-    (join-remote flag)
-  ::
-  ::  +handle-decline-invite: user declined a pending invite
-  ++  handle-decline-invite
-    |=  =flag:n
-    ^+  cor
-    ?>  =(src.bowl our.bowl)
-    ?.  (~(has by invites) flag)  cor
-    =.  invites  (~(del by invites) flag)
-    (give-inbox-removed flag)
+  ::  no |^ arms remain — the invite/join helpers used to live here but
+  ::  moved to the top level so +dispatch-v1-action (called by both this
+  ::  arm and +handle-v1-post) can reach them.
   --
 ::
 ::  +serve-http: dispatch an HTTP request to the right responder.
-::  Order: PWA static assets → published note → share redirect → UI fallback.
+::  Order: v1 API → PWA static assets → published note → share redirect → UI fallback.
 ++  serve-http
   |=  [eyre-id=@ta =inbound-request:eyre]
   ^+  cor
   =/  url-tape=tape  (trip url.request.inbound-request)
   =/  url-path=tape  (strip-query url-tape)
+  =/  method=@tas  method.request.inbound-request
+  ::  openapi spec — served public so an MCP proxy can fetch it without
+  ::  having to invent an auth scheme. The spec is metadata, not a side
+  ::  channel into agent state. JSON only because %mcp-proxy parses
+  ::  cached specs with de:json:html and doesn't accept YAML.
+  ?:  =("/notes/openapi.json" url-path)
+    (give-http eyre-id 200 'application/json' json:openapi-spec)
+  ::  v1 HTTP API: POST /notes/~/v1, GET /notes/~/v1/request/<uv>,
+  ::  GET /notes/~/v1/notebooks[...] + /notes/~/v1/invites (read surface)
+  ?:  =("/notes/~/v1" url-path)
+    ?:  =(%'POST' method)  (handle-v1-post eyre-id inbound-request)
+    (http-error eyre-id 405 'method not allowed')
+  ?:  =("/notes/~/v1/request/" (scag 20 url-path))
+    ?:  =(%'GET' method)  (handle-v1-get-request eyre-id (slag 20 url-path) inbound-request)
+    (http-error eyre-id 405 'method not allowed')
+  ?:  =("/notes/~/v1/" (scag 12 url-path))
+    ::  other /notes/~/v1/* — GET reads, POST/PATCH/DELETE first-class writes
+    ?:  =(%'GET' method)     (handle-v1-read eyre-id url-path inbound-request)
+    ::  vere's runtime HTTP server rejects PATCH (400 before reaching the
+    ::  agent), so note-body updates use PUT.
+    ?:  ?=(?(%'POST' %'PUT' %'DELETE') method)
+      (handle-v1-write eyre-id method url-path inbound-request)
+    (http-error eyre-id 405 'method not allowed')
   ::  PWA-related static assets: manifest, service worker, icons.
   ::  Each returns [body content-type] or ~. Served scoped under
   ::  /notes/ so the SW can control the app's URL space.
@@ -448,13 +411,265 @@
   =/  ct=@t
     ?^  asset  ct.u.asset
     'text/html'
-  =/  data=octs  [(met 3 body) body]
-  =/  =response-header:http  [200 ~[['content-type' ct]]]
-  %-  emil
-  :~  [%give %fact [/http-response/[eyre-id]]~ %http-response-header !>(response-header)]
-      [%give %fact [/http-response/[eyre-id]]~ %http-response-data !>(`data)]
-      [%give %kick [/http-response/[eyre-id]]~ ~]
+  (give-http eyre-id 200 ct body)
+::
+::  +handle-v1-post: parse a v1 action from the POST body, register the
+::  request with eyre-id as http-id (so the HTTP request is held open
+::  until finalize-request emits the response), then dispatch.
+::
+::  Parsing is defensive — malformed bodies return 400, never crash to a
+::  500. `requestId` is OPTIONAL: clients (esp. LLM tool-callers) often
+::  can't produce a valid @uv, so if it's absent or unparseable we mint
+::  one server-side. The minted id rides back in the response, so the
+::  polling / SSE fallback still works; the common held-open POST path
+::  doesn't need the client to know it at all.
+++  handle-v1-post
+  |=  [eyre-id=@ta =inbound-request:eyre]
+  ^+  cor
+  ?.  (request-authorized inbound-request)
+    (http-error eyre-id 401 'unauthorized')
+  ?~  body.request.inbound-request
+    (http-error eyre-id 400 'missing body')
+  ?~  jon=(de:json:html q.u.body.request.inbound-request)
+    (http-error eyre-id 400 'invalid json')
+  ?.  ?=([%o *] u.jon)
+    (http-error eyre-id 400 'body must be a json object')
+  ?~  act-j=(~(get by p.u.jon) 'action')
+    (http-error eyre-id 400 'missing `action` field')
+  ::  parse the a-notes; a bad action shape is a client error, not a 500
+  =/  a-res=(each a-notes:n tang)
+    (mule |.((action:dejs:notes-json u.act-j)))
+  ?:  ?=(%| -.a-res)
+    (http-error eyre-id 400 'malformed action')
+  =/  a-act=a-notes:n  p.a-res
+  ::  resolve requestId: honor a valid client @uv, else mint one
+  =/  rid=request-id:v1:n
+    =/  rj=(unit json)  (~(get by p.u.jon) 'requestId')
+    ?.  ?&(?=(^ rj) ?=([%s *] u.rj))
+      `@uv`(mix eny.bowl rid-counter)
+    =/  parsed=(each @uv tang)  (mule |.((slav %uv p.u.rj)))
+    ?:(?=(%& -.parsed) p.parsed `@uv`(mix eny.bowl rid-counter))
+  =.  rid-counter  +(rid-counter)
+  ::  register with eyre-id so the in-flight HTTP request is tracked
+  =.  requests
+    %+  ~(put by requests)  rid
+    [rid `eyre-id %sending ~ ~ |]
+  ::  dispatch directly — auth already verified above; skipping the
+  ::  +poke %notes-action-1 arm's src.bowl gate, which would reject the
+  ::  request when eyre delivered it unauthenticated but we let it
+  ::  through on a valid X-Api-Key.
+  (dispatch-v1-action [rid a-act])
+::
+::  +handle-v1-get-request: respond with the current state of a request.
+::  Path remainder is the @uv id. If the request has a terminal result,
+::  mark fetched=& so cleanup can evict it sooner. Auth-gated like the
+::  POST: a request-id is not a capability — without cookie / X-Api-Key
+::  this would leak note content and typed error details to anyone who
+::  guessed (or sniffed) the rid.
+++  handle-v1-get-request
+  |=  [eyre-id=@ta path-rest=tape =inbound-request:eyre]
+  ^+  cor
+  ?.  (request-authorized inbound-request)
+    (http-error eyre-id 401 'unauthorized')
+  =/  pax=path  (stab (crip (weld "/" path-rest)))
+  ?.  ?=([@ ~] pax)
+    (http-error eyre-id 404 'bad path')
+  =/  rid=request-id:v1:n  (slav %uv i.pax)
+  ?~  req=(~(get by requests) rid)
+    (http-error eyre-id 404 'request not found')
+  =/  body=response-body:v1:n
+    ?~  result.u.req  [%pending poke-status.u.req]
+    u.result.u.req
+  =.  requests
+    (~(put by requests) rid u.req(fetched &))
+  (give-http-response eyre-id [rid body])
+::
+::  +give-json-response: emit a 200 application/json HTTP response with
+::  an arbitrary json payload (read endpoints; not the v1 response shape).
+++  give-json-response
+  |=  [eyre-id=@ta =json]
+  ^+  cor
+  (give-http eyre-id 200 'application/json' (en:json:html json))
+::
+::  +read-notebooks-json: the cross-cutting notebook list, filtered to
+::  notebooks the caller can view. Mirrors the /x/v0/notebooks scry.
+::  Identity for the v1 read API is always our.bowl: request-authorized
+::  has already confirmed the caller is either the logged-in user
+::  (cookie) or a trusted bot holding the api-key (acting as us). We
+::  can't use src.bowl — an X-Api-Key request isn't eyre-authenticated,
+::  so its src.bowl is not our.bowl and would filter out everything.
+++  read-notebooks-json
+  ^-  json
+  %-  notebook-summaries:enjs:notes-json
+  %+  murn  ~(tap by books)
+  |=  [=flag:n [* =notebook-state:n]]
+  ?.  (can-view-flag flag our.bowl)  ~
+  `[flag [notebook visibility]:notebook-state]
+::
+::  +read-invites-json: pending invites we've received.
+++  read-invites-json
+  ^-  json
+  %-  invite-records:enjs:notes-json
+  %+  turn  ~(tap by invites)
+  |=  [=flag:n info=invite-info:n]
+  [flag info]
+::
+::  +handle-v1-read: GET read surface under /notes/~/v1/. Auth-gated the
+::  same as POST (cookie OR X-Api-Key) so a bot with only a key can read
+::  as well as write — the v0 scry paths require a cookie. JSON out.
+::
+::    /notes/~/v1/notebooks
+::    /notes/~/v1/notebooks/{host}/{name}
+::    /notes/~/v1/notebooks/{host}/{name}/folders
+::    /notes/~/v1/notebooks/{host}/{name}/folders/{id}
+::    /notes/~/v1/notebooks/{host}/{name}/notes
+::    /notes/~/v1/notebooks/{host}/{name}/notes/{id}
+::    /notes/~/v1/notebooks/{host}/{name}/notes/{id}/history
+::    /notes/~/v1/notebooks/{host}/{name}/members
+::    /notes/~/v1/invites
+::
+++  handle-v1-read
+  |=  [eyre-id=@ta url-path=tape =inbound-request:eyre]
+  ^+  cor
+  ?.  (request-authorized inbound-request)
+    (http-error eyre-id 401 'unauthorized')
+  ::  strip "/notes/~/v1/" (12 chars) → remaining path segments
+  =/  pax=path  (stab (crip (weld "/" (slag 12 url-path))))
+  ?+    pax  (http-error eyre-id 404 'unknown read path')
+      [%notebooks ~]
+    (give-json-response eyre-id read-notebooks-json)
+  ::
+      [%invites ~]
+    (give-json-response eyre-id read-invites-json)
+  ::
+      [%notebooks @ @ *]
+    =/  =flag:n  [(slav %p i.t.pax) `@tas`i.t.t.pax]
+    ?~  (~(get by books) flag)
+      (http-error eyre-id 404 'notebook not found')
+    ?~  jon=(no-read-json:(no-abed:no-core flag) t.t.t.pax)
+      (http-error eyre-id 404 'not found')
+    (give-json-response eyre-id u.jon)
   ==
+::
+::  +field-cord / +field-ud: lenient reads of one key from a json object
+::  for the write endpoints. Return ~ on a missing key or wrong json shape,
+::  so a cheap model sending a slightly-off body gets a 400, not a 500.
+++  field-cord
+  |=  [obj=(map @t json) key=@t]
+  ^-  (unit @t)
+  ?~  v=(~(get by obj) key)  ~
+  ?.  ?=([%s *] u.v)  ~
+  `p.u.v
+::
+++  field-ud
+  |=  [obj=(map @t json) key=@t]
+  ^-  (unit @ud)
+  ?~  v=(~(get by obj) key)  ~
+  ?.  ?=([%n *] u.v)  ~
+  (rush p.u.v dem)
+::
+::  +build-write-action: translate a REST write (method + path segments +
+::  json body) into an a-notes action, or ~ if the shape isn't recognized
+::  / required fields are missing. These are the "first-class" convenience
+::  endpoints — flat bodies, no discriminated-union construction, easier
+::  for weak models than the generic submitAction.
+::
+::  PATCH note body: expectedRevision is optional. When supplied it rides
+::  through to se-update-note's strict concurrency check (same as the UI).
+::  When omitted we fall back to the note's current revision — a plain
+::  last-write-wins for callers that don't track revisions.
+++  build-write-action
+  |=  [method=@tas pax=path obj=(map @t json) recursive=?]
+  ^-  (unit a-notes:n)
+  ?:  &(=(%'POST' method) ?=([%notebooks ~] pax))
+    ?~  title=(field-cord obj 'title')  ~
+    `[%create-notebook u.title]
+  ?.  ?=([%notebooks @ @ *] pax)  ~
+  ?~  host=(slaw %p i.t.pax)  ~
+  =/  =flag:n  [u.host `@tas`i.t.t.pax]
+  =/  sub=path  t.t.t.pax
+  ?+    [method sub]  ~
+  ::
+      [%'POST' [%notes ~]]
+    ?~  folder=(field-ud obj 'folder')  ~
+    ?~  title=(field-cord obj 'title')  ~
+    =/  body-str=@t  (fall (field-cord obj 'body') '')
+    `[%notebook flag [%create-note u.folder u.title body-str]]
+  ::
+      [%'POST' [%folders ~]]
+    ::  `folderName` rather than `name` because the path already has a
+    ::  `{name}` (notebook slug) — mcp-proxy flattens path + body into a
+    ::  single tool input, and a colliding `name` would conflate the two.
+    ?~  fname=(field-cord obj 'folderName')  ~
+    `[%notebook flag [%create-folder (field-ud obj 'parent') u.fname]]
+  ::
+      [%'PUT' [%folders @ ~]]
+    ?>  ?=([%folders @ ~] sub)
+    ?~  fid=(slaw %ud i.t.sub)  ~
+    =/  new-name=(unit @t)     (field-cord obj 'folderName')
+    =/  new-parent=(unit @ud)  (field-ud obj 'parent')
+    ?:  &(?=(~ new-name) ?=(~ new-parent))  ~
+    `[%notebook flag [%folder u.fid [%update new-name new-parent]]]
+  ::
+      [%'DELETE' [%folders @ ~]]
+    ?>  ?=([%folders @ ~] sub)
+    ?~  fid=(slaw %ud i.t.sub)  ~
+    `[%notebook flag [%folder u.fid [%delete recursive]]]
+  ::
+      [%'DELETE' [%notes @ ~]]
+    ?>  ?=([%notes @ ~] sub)
+    ?~  nid=(slaw %ud i.t.sub)  ~
+    `[%notebook flag [%note u.nid [%delete ~]]]
+  ::
+      [%'PUT' [%notes @ ~]]
+    ?>  ?=([%notes @ ~] sub)
+    ?~  nid=(slaw %ud i.t.sub)  ~
+    ::  body present → %update (revision-checked content edit).
+    ::  else title or folder present → %modify (rename and/or move).
+    ?^  body-str=(field-cord obj 'body')
+      =/  exp-rev=@ud
+        ?^  er=(field-ud obj 'expectedRevision')  u.er
+        ::  fall back to current revision (last-write-wins)
+        ?~  entry=(~(get by books) flag)  0
+        ?~  note=(~(get by notes.notebook-state.u.entry) u.nid)  0
+        revision.u.note
+      `[%notebook flag [%note u.nid [%update u.body-str exp-rev]]]
+    =/  new-title=(unit @t)   (field-cord obj 'title')
+    =/  new-folder=(unit @ud)  (field-ud obj 'folder')
+    ?:  &(?=(~ new-title) ?=(~ new-folder))  ~
+    `[%notebook flag [%note u.nid [%modify new-title new-folder]]]
+  ==
+::
+::  +handle-v1-write: POST/PATCH/DELETE first-class write endpoints under
+::  /notes/~/v1/notebooks[...]. Auth-gated like everything else; builds an
+::  a-notes via build-write-action and routes through the same
+::  dispatch-v1-action loop as the generic submitAction. requestId is
+::  always minted server-side here (no envelope to carry one).
+++  handle-v1-write
+  |=  [eyre-id=@ta method=@tas url-path=tape =inbound-request:eyre]
+  ^+  cor
+  ?.  (request-authorized inbound-request)
+    (http-error eyre-id 401 'unauthorized')
+  =/  pax=path  (stab (crip (weld "/" (slag 12 url-path))))
+  =/  obj=(map @t json)
+    =/  jon=(unit json)
+      ?~  body.request.inbound-request  ~
+      (de:json:html q.u.body.request.inbound-request)
+    ?.  ?&(?=(^ jon) ?=([%o *] u.jon))  ~
+    p.u.jon
+  ::  parse ?recursive=true from the original query string (url-path is
+  ::  already stripped). Only meaningful for DELETE /folders/{id}.
+  =/  recursive=?
+    =/  url-tape=tape  (trip url.request.inbound-request)
+    =/  qi=(unit @ud)  (find "?" url-tape)
+    ?~  qi  |
+    ?=(^ (find "recursive=true" (slag +(u.qi) url-tape)))
+  ?~  act=(build-write-action method pax obj recursive)
+    (http-error eyre-id 400 'unsupported write — check method, path, and required fields')
+  =/  rid=request-id:v1:n  `@uv`(mix eny.bowl rid-counter)
+  =.  rid-counter  +(rid-counter)
+  =.  requests  (~(put by requests) rid [rid `eyre-id %sending ~ ~ |])
+  (dispatch-v1-action [rid u.act])
 ::
 ++  watch
   |=  =(pole knot)
@@ -477,6 +692,29 @@
       [%v0 %inbox %stream ~]
     ?>  =(src.bowl our.bowl)
     cor
+  ::
+      [%v1 %notes ship=@ name=@ %request requester=@ id=@ ~]
+    ::  Per-request path. Subscribers attach here while awaiting their
+    ::  response-update. Path's `ship`/`name` segment is the notebook
+    ::  flag's identity, NOT the ship hosting this watch — the host
+    ::  emitting on this path is whoever the requester is calling (a
+    ::  notebook host, an invitee, etc). Only invariant: src.bowl must
+    ::  match the requester segment, so a ship can't snoop on another
+    ::  ship's request stream.
+    =/  req-ship=ship  (slav %p requester.pole)
+    ?>  =(src.bowl req-ship)
+    cor
+  ::
+      [%v1 %request id=@ ~]
+    ::  local SSE per-request stream. If we already hold a terminal
+    ::  result, send it now so the subscriber doesn't need to poll GET.
+    ?>  =(src.bowl our.bowl)
+    =/  rid=request-id:v1:n  (slav %uv id.pole)
+    ?~  req=(~(get by requests) rid)  cor
+    ?~  result.u.req  cor
+    %-  give
+    :+  %fact  ~
+    notes-response-1+!>(`response:v1:n`[rid u.result.u.req])
   ==
 ::
 ++  peek
@@ -511,6 +749,12 @@
     ::  /x/debug/dummy — current ++dummy value for tooling readiness checks
       [%x %debug %dummy ~]
     ``json+!>(s+dummy)
+    ::  /x/v0/api-key — current X-Api-Key value as a JSON string, or null
+    ::  if cleared. Gated to the local user; never leaks to remote callers.
+      [%x %v0 %api-key ~]
+    ?.  =(src.bowl our.bowl)  ~
+    =/  jon=json  ?~(api-key ~ s+u.api-key)
+    ``json+!>(jon)
     ::  /x/v0/<kind>/<ship>/<name>[/<rest>] — delegate to no-peek
       [%x %v0 kind=@ ship=@ name=@ rest=*]
     =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
@@ -553,6 +797,20 @@
     ?+  -.sign  cor
         %poke-ack  cor
     ==
+  ::
+      [%notes %req ship=@ name=@ id=@ %watch ~]
+    ::  v1 per-request watch wire. Flag embedded in the wire so we can
+    ::  route back into the right no-core context.
+    =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
+    ?.  (~(has by books) flag)  cor
+    =/  rid=request-id:v1:n  (slav %uv id.pole)
+    no-abet:(no-agent-req-watch:(no-abed:no-core flag) rid sign)
+  ::
+      [%notes %req ship=@ name=@ id=@ %poke ~]
+    =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
+    ?.  (~(has by books) flag)  cor
+    =/  rid=request-id:v1:n  (slav %uv id.pole)
+    no-abet:(no-agent-req-poke:(no-abed:no-core flag) rid sign)
   ==
 ::
 ++  arvo
@@ -562,12 +820,26 @@
   ?:  ?=([%behn %wake *] sign-arvo)
     =/  pole  ;;((pole knot) wire)
     ?+  pole  ~|(bad-arvo-wire+wire !!)
+        [%cleanup %requests ~]
+      ::  reschedule and run the cleanup pass. timer behaves the same
+      ::  whether the requests map is empty or populated.
+      =.  requests  (cleanup-requests now.bowl)
+      %-  emit
+      [%pass /cleanup/requests %arvo %b %wait (add now.bowl ~m5)]
+    ::
         [%notes %rewatch ship=@ name=@ ~]
       =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
       ?.  (~(has by books) flag)  cor
       =/  entry=[=net:n *]  (~(got by books) flag)
       ?.  ?=(%sub -.net.entry)  cor
       no-abet:no-start-watch:(no-abed:no-core flag)
+    ::
+        [%notes %req ship=@ name=@ id=@ %wake ~]
+      ::  v1 per-request timeout — deliver %pending to the held HTTP
+      ::  request (if any) and keep the request entry around for the
+      ::  late-arriving response on the SSE path.
+      =/  rid=request-id:v1:n  (slav %uv id.pole)
+      (finalize-pending rid)
     ==
   ~|(bad-arvo-sign+wire !!)
 ::
@@ -690,6 +962,112 @@
   ^-  card
   [%give %fact [/v0/inbox/stream]~ notes-inbox-update+!>(`u-inbox:n`[%notebooks-changed ~])]
 ::
+::  +cleanup-requests: evict in-flight request records that have terminated.
+::  Rules (match channels-server in tlon-apps PR 5334):
+::    - keep if no terminal result yet, or status is %pending
+::    - keep if no final-at timestamp yet (defensive — shouldn't happen)
+::    - drop unconditionally past 24h
+::    - %ok / %no-change: drop after 5m
+::    - %error: drop only after the client has fetched it
+++  cleanup-requests
+  |=  now=@da
+  ^-  requests:v1:n
+  %-  ~(rep by requests)
+  |=  [[id=request-id:v1:n req=incoming-request:v1:n] out=requests:v1:n]
+  ?:  |(?=(~ result.req) ?=([~ %pending *] result.req))
+    (~(put by out) id req)
+  ?~  final-at.req  (~(put by out) id req)
+  ?:  (gth (sub now u.final-at.req) ~d1)
+    out
+  ?:  |(?=([~ %ok *] result.req) ?=([~ %no-change *] result.req))
+    ?:  (gth (sub now u.final-at.req) ~m5)
+      out
+    (~(put by out) id req)
+  ?:  fetched.req  out
+  (~(put by out) id req)
+::
+::  ====  HTTP / request-id helpers  ====
+::
+::  +give-http: emit a complete HTTP response on the eyre-id's response
+::  path — header (status + content-type), body, and the closing kick.
+::  Every HTTP reply in this agent funnels through here.
+++  give-http
+  |=  [eyre-id=@ta code=@ud ct=@t body=@t]
+  ^+  cor
+  =/  data=octs  (as-octs:mimes:html body)
+  %-  emil
+  :~  [%give %fact [/http-response/[eyre-id]]~ %http-response-header !>(`response-header:http`[code ~[['content-type' ct]]])]
+      [%give %fact [/http-response/[eyre-id]]~ %http-response-data !>(`data)]
+      [%give %kick [/http-response/[eyre-id]]~ ~]
+  ==
+::
+::  +http-error: emit a non-200 HTTP error response (plain text body)
+++  http-error
+  |=  [eyre-id=@ta code=@ud message=@t]
+  ^+  cor
+  (give-http eyre-id code 'text/plain' message)
+::
+::  +give-http-response: emit a 200 application/json HTTP response carrying
+::  the encoded response.
+++  give-http-response
+  |=  [eyre-id=@ta =response:v1:n]
+  ^+  cor
+  (give-http eyre-id 200 'application/json' (en:json:html (response:v1:enjs:notes-json response)))
+::
+::  +finalize-request: store terminal body in the request record, fact it on
+::  the per-request SSE path, deliver to a held HTTP request if any, and clear
+::  http-id so a later late-arriving update doesn't re-deliver.
+++  finalize-request
+  |=  [rid=request-id:v1:n body=response-body:v1:n]
+  ^+  cor
+  ?~  req=(~(get by requests) rid)  cor
+  =/  =response:v1:n  [rid body]
+  =.  requests
+    %+  ~(put by requests)  rid
+    u.req(result `body, final-at `now.bowl)
+  =.  cor
+    %-  give
+    [%fact ~[/v1/request/(scot %uv rid)] notes-response-1+!>(response)]
+  ?~  http-id.u.req  cor
+  =.  requests
+    %+  ~(put by requests)  rid
+    u.req(http-id ~, result `body, final-at `now.bowl)
+  (give-http-response u.http-id.u.req response)
+::
+::  +finalize-pending: deliver %pending status to a held HTTP request when the
+::  per-request timeout fires before any terminal response. Keeps the request
+::  open for the SSE subscribers + a future late response.
+++  finalize-pending
+  |=  rid=request-id:v1:n
+  ^+  cor
+  ?~  req=(~(get by requests) rid)  cor
+  ?:  ?&  ?=(^ result.u.req)
+          !?=([~ %pending *] result.u.req)
+      ==
+    cor
+  =/  body=response-body:v1:n  [%pending poke-status.u.req]
+  =/  =response:v1:n  [rid body]
+  =.  requests
+    %+  ~(put by requests)  rid
+    u.req(result `body)
+  =.  cor
+    %-  give
+    [%fact ~[/v1/request/(scot %uv rid)] notes-response-1+!>(response)]
+  ?~  http-id.u.req  cor
+  =.  requests
+    (~(put by requests) rid u.req(http-id ~))
+  (give-http-response u.http-id.u.req response)
+::
+::  +register-request: idempotent insert of a fresh incoming-request record.
+++  register-request
+  |=  [rid=request-id:v1:n eyre-id=(unit @ta)]
+  ^+  cor
+  =/  existing=(unit incoming-request:v1:n)  (~(get by requests) rid)
+  ?^  existing  cor
+  =.  requests
+    (~(put by requests) rid [rid eyre-id %sending ~ ~ |])
+  cor
+::
 ::  +give-inbox-received: emit an invite-received event on /v0/inbox/stream
 ++  give-inbox-received
   |=  [=flag:n from=ship sent-at=@da title=@t]
@@ -704,10 +1082,228 @@
   %-  give
   [%fact [/v0/inbox/stream]~ notes-inbox-update+!>(`u-inbox:n`[%invite-removed flag])]
 ::
+::  ====  Invite / join handlers (moved out of +poke's |^ so dispatch-v1-action
+::        and the v0 %notes-action poke arm share one implementation)  ====
+::
+::  +send-v1-request: shared wire setup for any cross-ship request-id call.
+::  Emits the three cards that every v1 cross-ship flow needs (subscribe
+::  to host's response path, poke with notes-command-1, set per-request
+::  behn timeout) keyed by the flag so the +agent handlers can route
+::  signs back via the standard no-agent-req-watch / no-agent-req-poke.
+::
+::  `target` is the ship receiving the poke (the notebook host for
+::  member-join/leave; the invitee for %notify-invite). `flag` is the
+::  notebook's identity used in both wires and the host-side path —
+::  what bookkeeping context the response-update is about, not who's
+::  hosting it.
+::
+++  send-v1-request
+  |=  [rid=request-id:v1:n target=ship =flag:n cmd1=command:v1:n]
+  ^+  cor
+  =/  watch-wire=wire
+    /notes/req/(scot %p ship.flag)/[name.flag]/(scot %uv rid)/watch
+  =/  watch-path=path
+    :+  %v1  %notes
+    /(scot %p ship.flag)/[name.flag]/request/(scot %p our.bowl)/(scot %uv rid)
+  =/  poke-wire=wire
+    /notes/req/(scot %p ship.flag)/[name.flag]/(scot %uv rid)/poke
+  =/  wake-wire=wire
+    /notes/req/(scot %p ship.flag)/[name.flag]/(scot %uv rid)/wake
+  =.  cor  (emit %pass watch-wire %agent [target %notes] %watch watch-path)
+  =.  cor  (emit %pass poke-wire %agent [target %notes] %poke notes-command-1+!>(cmd1))
+  (emit %pass wake-wire %arvo %b %wait (add now.bowl ~s20))
+::
+::  +join-remote-v1: pre-place the local placeholder and fire a v1
+::  request to the host for %member-join. The terminal response
+::  arrives via no-agent-req-watch on the standard request wire.
+++  join-remote-v1
+  |=  [rid=request-id:v1:n =flag:n]
+  ^+  cor
+  ?<  =(our.bowl ship.flag)
+  ?<  (~(has by books) flag)
+  =/  placeholder-net=net:n  [%sub *@da |]
+  =/  =notebook:n
+    [0 '' ship.flag *@da *@da ship.flag]
+  =/  placeholder-nb-state=notebook-state:n
+    [notebook ~ %private ~ ~ ~]
+  =.  books
+    (~(put by books) flag [placeholder-net placeholder-nb-state])
+  =/  cmd1=command:v1:n  [rid [%notebook flag [%member-join ~]]]
+  (send-v1-request rid ship.flag flag cmd1)
+::
+::  +leave-remote-v1: locally drop our subscription + placeholder, then
+::  notify the host so their members map matches. The local cleanup is
+::  unconditional (the request is informational from the host's POV);
+::  the request-id loop just gives the FE a confirmation point.
+++  leave-remote-v1
+  |=  [rid=request-id:v1:n =flag:n]
+  ^+  cor
+  ?>  (~(has by books) flag)
+  =.  cor  no-abet:no-leave:(no-abed:no-core flag)
+  =/  cmd1=command:v1:n  [rid [%notebook flag [%member-leave ~]]]
+  (send-v1-request rid ship.flag flag cmd1)
+::
+::  +handle-send-invite-v1: owner-only, fired locally. Pre-add the
+::  target ship to the notebook's member list and fire a v1 request to
+::  the invitee with %notify-invite. The invitee acks with %no-change.
+++  handle-send-invite-v1
+  |=  [rid=request-id:v1:n =flag:n who=ship]
+  ^+  cor
+  ?>  =(ship.flag our.bowl)
+  =/  entry=[* =notebook-state:n]  (~(got by books) flag)
+  =.  cor
+    =/  cmd=c-cmd:n  [flag [%invite who]]
+    se-abet:(se-poke:(se-abed:se-core flag) cmd)
+  =/  cmd1=command:v1:n
+    [rid [%notify-invite flag title.notebook.notebook-state.entry]]
+  (send-v1-request rid who flag cmd1)
+::
+::  +handle-notify-invite: called when a remote host pokes us with
+::  [%notify-invite flag title]. The sender must be the notebook host.
+::  Response-update emission happens in the +poke %notes-command-1 arm
+::  so this stays a pure state-mutation helper.
+++  handle-notify-invite
+  |=  [=flag:n title=@t from=ship]
+  ^+  cor
+  ?<  =(from our.bowl)
+  ?>  =(from ship.flag)
+  ?:  (~(has by books) flag)  cor
+  ?:  (~(has by invites) flag)  cor
+  =/  info=invite-info:n  [from now.bowl title]
+  =.  invites  (~(put by invites) flag info)
+  (give-inbox-received flag from now.bowl title)
+::
+::  +handle-accept-invite-v1: user accepted a pending invite. Clears the
+::  invite locally, then delegates to join-remote-v1 if we're not already
+::  a member. (If we somehow are, finalize synchronously since there's
+::  no cross-ship round trip to await.)
+++  handle-accept-invite-v1
+  |=  [rid=request-id:v1:n =flag:n]
+  ^+  cor
+  ?>  =(src.bowl our.bowl)
+  =.  invites  (~(del by invites) flag)
+  =.  cor  (give-inbox-removed flag)
+  ?:  (~(has by books) flag)
+    (finalize-request rid [%no-change ~])
+  (join-remote-v1 rid flag)
+::
+::  +handle-decline-invite: user declined a pending invite. Purely
+::  local — no cross-ship work, finalized synchronously by the caller.
+++  handle-decline-invite
+  |=  =flag:n
+  ^+  cor
+  ?>  =(src.bowl our.bowl)
+  ?.  (~(has by invites) flag)  cor
+  =.  invites  (~(del by invites) flag)
+  (give-inbox-removed flag)
+::
+::  ====  v1 action dispatch + HTTP auth helpers  ====
+::
+::  +get-api-key-header: case-insensitive lookup of x-api-key in the
+::  inbound HTTP request headers. Returns ~ if absent.
+++  get-api-key-header
+  |=  req=inbound-request:eyre
+  ^-  (unit @t)
+  =/  hdrs=(list [key=@t value=@t])  header-list.request.req
+  |-  ^-  (unit @t)
+  ?~  hdrs  ~
+  ?:  =((cass (trip key.i.hdrs)) "x-api-key")  `value.i.hdrs
+  $(hdrs t.hdrs)
+::
+::  +request-authorized: an HTTP request passes the v1 auth gate when
+::  eyre already validated the session cookie OR when the X-Api-Key
+::  header matches the stored key.
+++  request-authorized
+  |=  req=inbound-request:eyre
+  ^-  ?
+  ?:  authenticated.req  &
+  ?~  api-key  |
+  =/  hdr=(unit @t)  (get-api-key-header req)
+  ?~  hdr  |
+  =(u.hdr u.api-key)
+::
+::  +dispatch-v1-action: top-level v1 action routing. Used by both
+::  +poke %notes-action-1 (after src.bowl gate) and +handle-v1-post
+::  (after eyre-or-api-key gate). Registers the request, runs the
+::  action, finalizes %no-change for local synchronous arms.
+++  dispatch-v1-action
+  |=  act=action:v1:n
+  ^+  cor
+  =/  rid  request-id.act
+  =/  a-act  a-notes.act
+  =.  cor  (register-request rid ~)
+  ?.  ?=(%notebook -.a-act)
+    ::  Two flavors of top-level action:
+    ::  - synchronous: purely local work, finalize %no-change right here
+    ::  - asynchronous: fires a cross-ship v1 request whose terminal
+    ::    response-update arrives later via no-agent-req-watch
+    ?-  -.a-act
+        %create-notebook
+      ::  return the new notebook's summary so the caller learns the
+      ::  slugified flag + metadata without a follow-up scry.
+      =/  core  (se-create-notebook:(se-init:se-core a-act) a-act)
+      =.  cor  se-abet:core
+      =/  =notebook-summary:n
+        :+  flag.core  notebook.notebook-state.core
+        visibility.notebook-state.core
+      (finalize-request rid [%notebook notebook-summary])
+    ::
+        %join
+      (join-remote-v1 rid flag.a-act)
+    ::
+        %leave
+      (leave-remote-v1 rid flag.a-act)
+    ::
+        %accept-invite
+      (handle-accept-invite-v1 rid flag.a-act)
+    ::
+        %decline-invite
+      =.  cor  (handle-decline-invite flag.a-act)
+      (finalize-request rid [%no-change ~])
+    ::
+        %regenerate-api-key
+      =/  new-key=@t  (scot %uv eny.bowl)
+      =.  api-key  `new-key
+      (finalize-request rid [%api-key `new-key])
+    ::
+        %clear-api-key
+      =.  api-key  ~
+      (finalize-request rid [%api-key ~])
+    ==
+  =/  =flag:n  flag.a-act
+  ?+    -.a-notebook.a-act
+      no-abet:(no-action-v1:(no-abed:no-core flag) rid a-act)
+  ::
+      %invite
+    ::  cross-ship: invitee acks via response-update %no-change
+    (handle-send-invite-v1 rid flag who.a-notebook.a-act)
+  ::
+      %note
+    =*  n-act  a-note.a-notebook.a-act
+    ?+    -.n-act
+        no-abet:(no-action-v1:(no-abed:no-core flag) rid a-act)
+    ::
+        %publish
+      =.  cor  no-abet:(no-publish:(no-abed:no-core flag) id.a-notebook.a-act html.n-act)
+      (finalize-request rid [%no-change ~])
+    ::
+        %unpublish
+      =.  cor  no-abet:(no-unpublish:(no-abed:no-core flag) id.a-notebook.a-act)
+      (finalize-request rid [%no-change ~])
+    ==
+  ==
+::
 ::  ====  se-core: server/host core  ====
 ::
 ++  se-core
-  |_  [=flag:n =log:n =notebook-state:n gone=_|]
+  |_  $:  =flag:n
+          =log:n
+          =notebook-state:n
+          gone=_|
+          rid=request-id:v1:n
+          last-update=(unit update:n)
+          finalized=?
+      ==
   ++  se-core  .
   ++  emit  |=(=card se-core(cor cor(cards [card cards])))
   ++  give  |=(=gift:agent:gall (emit %give gift))
@@ -747,7 +1343,9 @@
   ++  se-sub-path
     `path`(weld se-area /updates)
   ::
-  ::  +se-update: append update to log and broadcast to subscribers
+  ::  +se-update: append update to log and broadcast to subscribers.
+  ::  Also records the [time u-notebook] as last-update so se-emit-final-response
+  ::  can wrap it in the response-update body for the v1 request flow.
   ++  se-update
     |=  upd=u-notebook:n
     ^+  se-core
@@ -756,9 +1354,51 @@
       ?~  existing=(get:log-on:n log now.bowl)  now.bowl
       $(now.bowl `@da`(add now.bowl ^~((div ~s1 (bex 16)))))
     =.  log  (put:log-on:n log [ts upd])
+    =.  last-update  `[ts upd]
     %-  give
     :+  %fact  ~[se-sub-path (weld se-area /stream)]
     notes-response+!>(`response:n`[%update flag [ts upd]])
+  ::
+  ::  +se-poke-v1: dispatch a c-notes command for a request-id'd flow.
+  ::  Sets rid into se-core's door state, runs the normal se-poke, then
+  ::  emits the terminal response-update on the per-request host path.
+  ++  se-poke-v1
+    |=  [req-id=request-id:v1:n cmd=c-cmd:n]
+    ^+  se-core
+    =.  rid  req-id
+    =.  last-update  ~
+    =.  finalized  |
+    =.  se-core  (se-poke cmd)
+    se-emit-final-response
+  ::
+  ::  +se-emit-final-response: emit response-update on the request path.
+  ::  Skipped if rid is 0 (non-v1 flow) or already explicitly finalized.
+  ++  se-emit-final-response
+    ^+  se-core
+    ?:  =(0 rid)  se-core
+    ?:  finalized  se-core
+    =/  body=response-update-body:v1:n
+      ?~  last-update  [%no-change ~]
+      [%ok u.last-update]
+    =/  =path
+      :+  %v1  %notes
+      /(scot %p ship.flag)/[name.flag]/request/(scot %p src.bowl)/(scot %uv rid)
+    %-  give
+    [%fact ~[path] notes-response-update-1+!>(`response-update:v1:n`[rid body])]
+  ::
+  ::  +se-finalize-with: explicit early-finalize. Use for typed errors so the
+  ::  arm can emit %error response-update without crashing (which would also
+  ::  discard the response-update emission).
+  ++  se-finalize-with
+    |=  body=response-update-body:v1:n
+    ^+  se-core
+    ?:  =(0 rid)  se-core
+    =.  finalized  &
+    =/  =path
+      :+  %v1  %notes
+      /(scot %p ship.flag)/[name.flag]/request/(scot %p src.bowl)/(scot %uv rid)
+    %-  give
+    [%fact ~[path] notes-response-update-1+!>(`response-update:v1:n`[rid body])]
   ::
   ::  +se-watch-sub: send initial snapshot to a new subscriber (with visibility)
   ++  se-watch-sub
@@ -924,6 +1564,7 @@
       %rename  (se-rename-folder cmd)
       %move    (se-move-folder cmd)
       %delete  (se-delete-folder cmd)
+      %update  (se-update-folder cmd)
     ==
   ::
   ++  se-dispatch-note
@@ -935,20 +1576,32 @@
       %move     (se-move-note cmd)
       %delete   (se-delete-note cmd)
       %update   (se-update-note cmd)
+      %modify   (se-modify-note cmd)
       %publish  se-core  ::  handled pre-dispatch (local-only)
       %unpublish  se-core
       %restore  (se-restore-note cmd)
     ==
   ::
+  ::  +se-create-folder: bug-prone callers (LLMs, raw pokes) frequently
+  ::  omit `parent` — the type allows ~, but a folder with parent=~ is
+  ::  structurally identical to the root and shows up as an orphan
+  ::  sibling. We resolve ~ to the notebook's root (root-id = nb.id + 1,
+  ::  a deterministic invariant from se-create-notebook), and require the
+  ::  resolved parent to actually exist so a bad explicit id crashes
+  ::  loudly instead of producing a dangling reference.
   ++  se-create-folder
     |=  cmd=c-cmd:n
     ^+  se-core
     ?>  ?=(%create-folder -.c-notebook.cmd)
     ?>  (se-can-edit src.bowl)
+    =/  parent-id=@ud
+      ?^  parent.c-notebook.cmd  u.parent.c-notebook.cmd
+      +(id.notebook.notebook-state)
+    ?>  (~(has by folders.notebook-state) parent-id)
     =/  fid=@ud  +(next-id)
     =.  next-id  fid
     =/  =folder:n
-      [fid id.notebook.notebook-state name.c-notebook.cmd parent.c-notebook.cmd [src now now src]:bowl]
+      [fid id.notebook.notebook-state name.c-notebook.cmd `parent-id [src now now src]:bowl]
     =.  folders.notebook-state
       (~(put by folders.notebook-state) fid folder)
     (se-update [%folder fid [%created folder]])
@@ -981,6 +1634,32 @@
       (se-subtree-folder-ids fid)
     ?<  (~(has in subtree) new-parent)
     =.  fld  fld(parent-folder-id `new-parent, updated-at now.bowl, updated-by src.bowl)
+    =.  folders.notebook-state
+      (~(put by folders.notebook-state) fid fld)
+    (se-update [%folder fid [%updated fld]])
+  ::
+  ::  +se-update-folder: REST PUT path. Applies whichever of name / parent
+  ::  is provided. Bails if both are ~ — a PUT that touches nothing is a
+  ::  caller bug (clearer than emitting a phantom "updated" fact).
+  ++  se-update-folder
+    |=  cmd=c-cmd:n
+    ^+  se-core
+    ?>  ?=(%folder -.c-notebook.cmd)
+    ?>  ?=(%update -.a-folder.c-notebook.cmd)
+    ?>  (se-can-edit src.bowl)
+    =*  fid  id.c-notebook.cmd
+    =*  upd  a-folder.c-notebook.cmd
+    ?>  |(?=(^ name.upd) ?=(^ parent.upd))
+    =/  fld=folder:n
+      (~(got by folders.notebook-state) fid)
+    =?  fld  ?=(^ name.upd)
+      fld(name u.name.upd)
+    =?  fld  ?=(^ parent.upd)
+      =/  subtree=(set @ud)  (se-subtree-folder-ids fid)
+      ?<  (~(has in subtree) u.parent.upd)
+      ?>  (~(has by folders.notebook-state) u.parent.upd)
+      fld(parent-folder-id `u.parent.upd)
+    =.  fld  fld(updated-at now.bowl, updated-by src.bowl)
     =.  folders.notebook-state
       (~(put by folders.notebook-state) fid fld)
     (se-update [%folder fid [%updated fld]])
@@ -1086,6 +1765,31 @@
         updated-by  src.bowl
         updated-at  now.bowl
       ==
+    =.  notes.notebook-state
+      (~(put by notes.notebook-state) nid note)
+    (se-update [%note nid [%updated note]])
+  ::
+  ::  +se-modify-note: REST PUT path. Applies whichever of title / folder
+  ::  is provided; rejects an empty modify and a move into a folder that
+  ::  doesn't exist. Revision is NOT bumped (matches %rename / %move).
+  ::  Body updates stay on %update so the revision-check semantics stay
+  ::  exclusive to content edits.
+  ++  se-modify-note
+    |=  cmd=c-cmd:n
+    ^+  se-core
+    ?>  ?=(%note -.c-notebook.cmd)
+    ?>  ?=(%modify -.a-note.c-notebook.cmd)
+    ?>  (se-can-edit src.bowl)
+    =*  nid  id.c-notebook.cmd
+    =*  upd  a-note.c-notebook.cmd
+    ?>  |(?=(^ title.upd) ?=(^ folder.upd))
+    =/  =note:n  (~(got by notes.notebook-state) nid)
+    =?  note  ?=(^ title.upd)
+      note(title u.title.upd)
+    =?  note  ?=(^ folder.upd)
+      ?>  (~(has by folders.notebook-state) u.folder.upd)
+      note(folder-id u.folder.upd)
+    =.  note  note(updated-at now.bowl, updated-by src.bowl)
     =.  notes.notebook-state
       (~(put by notes.notebook-state) nid note)
     (se-update [%note nid [%updated note]])
@@ -1295,6 +1999,33 @@
   ++  emit  |=(=card no-core(cor cor(cards [card cards])))
   ++  give  |=(=gift:agent:gall (emit %give gift))
   ::
+  ::  +no-req-watch-path: path the subscriber subscribes to on the host
+  ++  no-req-watch-path
+    |=  rid=request-id:v1:n
+    ^-  path
+    :+  %v1  %notes
+    /(scot %p ship.flag)/[name.flag]/request/(scot %p our.bowl)/(scot %uv rid)
+  ::
+  ::  +no-req-watch-wire: subscriber-side wire for the watch on host path.
+  ::  Flag is embedded so signs landing here can be routed back to the
+  ::  right no-core context without a separate lookup map.
+  ++  no-req-watch-wire
+    |=  rid=request-id:v1:n
+    ^-  wire
+    /notes/req/(scot %p ship.flag)/[name.flag]/(scot %uv rid)/watch
+  ::
+  ::  +no-req-poke-wire: subscriber-side wire for the poke to host
+  ++  no-req-poke-wire
+    |=  rid=request-id:v1:n
+    ^-  wire
+    /notes/req/(scot %p ship.flag)/[name.flag]/(scot %uv rid)/poke
+  ::
+  ::  +no-req-wake-wire: per-request timeout behn wire
+  ++  no-req-wake-wire
+    |=  rid=request-id:v1:n
+    ^-  wire
+    /notes/req/(scot %p ship.flag)/[name.flag]/(scot %uv rid)/wake
+  ::
   ++  no-abed
     |=  =flag:n
     ^+  no-core
@@ -1336,6 +2067,106 @@
         %poke
         notes-command+!>(cmd)
     ==
+  ::
+  ::  +no-action-v1: subscribe to host's per-request path, poke host with
+  ::  the v1 command (carrying request-id), schedule a per-request behn
+  ::  timeout. The host's response-update will arrive on the watch wire,
+  ::  flow through +agent → +no-agent-req to finalize the request.
+  ::
+  ::  For self-hosted notebooks (ship.flag == our.bowl) this loops through
+  ::  Gall — uniform code path at the cost of one extra event hop.
+  ++  no-action-v1
+    |=  [rid=request-id:v1:n act=action:n]
+    ^+  no-core
+    ?>  ?=(%notebook -.act)
+    =/  cmd1=command:v1:n
+      [rid [%notebook flag.act (a-notebook-to-c-notebook a-notebook.act)]]
+    =.  no-core
+      %-  emit
+      :*  %pass  (no-req-watch-wire rid)
+          %agent  [ship.flag %notes]
+          %watch  (no-req-watch-path rid)
+      ==
+    =.  no-core
+      %-  emit
+      :*  %pass  (no-req-poke-wire rid)
+          %agent  [ship.flag %notes]
+          %poke  notes-command-1+!>(cmd1)
+      ==
+    %-  emit
+    [%pass (no-req-wake-wire rid) %arvo %b %wait (add now.bowl ~s20)]
+  ::
+  ::  +no-agent-req-watch: handle signs on /notes/req/<uv>/watch wire.
+  ::  watch-ack: nack finalizes %not-authorized. fact: response-update
+  ::  from host, transform to response and finalize.
+  ++  no-agent-req-watch
+    |=  [rid=request-id:v1:n =sign:agent:gall]
+    ^+  no-core
+    ?+  -.sign  no-core
+        %watch-ack
+      ?~  p.sign  no-core
+      =.  cor  (finalize-request rid [%error %not-authorized u.p.sign])
+      no-cleanup-placeholder
+    ::
+        %fact
+      ?.  =(p.cage.sign %notes-response-update-1)
+        no-core
+      =+  !<(ru=response-update:v1:n q.cage.sign)
+      =/  body=response-body:v1:n
+        ?-  -.body.ru
+          %no-change  [%no-change ~]
+          %ok         [%ok %update flag update.body.ru]
+          %error      [%error type.body.ru message.body.ru]
+        ==
+      =.  cor  (finalize-request rid body)
+      ::  kick off the broadcast subscription on the first successful
+      ::  cross-ship response. covers the post-join case where the
+      ::  placeholder net hasn't started watching the host's stream yet;
+      ::  no-op once init flips & after the snapshot arrives.
+      =?  no-core  ?&(?=([%ok *] body) ?=(%sub -.net) !init.net)
+        no-start-watch
+      ::  on a terminal error, roll back the local placeholder so a
+      ::  failed remote join doesn't leave a ghost notebook in books.
+      ::  no-cleanup-placeholder is a no-op for real subscriptions.
+      =?  no-core  ?=([%error *] body)  no-cleanup-placeholder
+      ::  leave the host watch — we got our terminal response
+      %-  emit
+      [%pass (no-req-watch-wire rid) %agent [ship.flag %notes] %leave ~]
+    ::
+        %kick
+      no-core
+    ==
+  ::
+  ::  +no-agent-req-poke: handle poke-ack on /notes/req/<uv>/poke wire.
+  ::  nack → finalize %unknown + leave host watch + roll back any
+  ::  placeholder. ack → mark poke-status.
+  ++  no-agent-req-poke
+    |=  [rid=request-id:v1:n =sign:agent:gall]
+    ^+  no-core
+    ?+  -.sign  no-core
+        %poke-ack
+      ?~  p.sign
+        ?~  req=(~(get by requests) rid)  no-core
+        =.  requests
+          (~(put by requests) rid u.req(poke-status %acked))
+        no-core
+      =?  requests  ?=(^ (~(get by requests) rid))
+        =/  u  (~(got by requests) rid)
+        (~(put by requests) rid u(poke-status %nacked))
+      =.  cor  (finalize-request rid [%error %unknown u.p.sign])
+      =.  no-core  no-cleanup-placeholder
+      %-  emit
+      [%pass (no-req-watch-wire rid) %agent [ship.flag %notes] %leave ~]
+    ==
+  ::
+  ::  +no-cleanup-placeholder: roll back the books entry if we were
+  ::  still in placeholder state (subscriber, no snapshot yet). For
+  ::  real subscriptions this is a no-op; a transient cross-ship
+  ::  failure doesn't tear down an established notebook.
+  ++  no-cleanup-placeholder
+    ^+  no-core
+    ?.  ?&(?=(%sub -.net) !init.net)  no-core
+    no-core(gone &)
   ::
   ++  no-start-watch
     ^+  no-core
@@ -1571,5 +2402,52 @@
     :+  %fact
       [`path`/v0/notes/(scot %p ship.flag)/[name.flag]/stream]~
     notes-response+!>(`response:n`[%snapshot flag visibility.notebook-state notebook-state])
+  ::
+  ::  +no-read-json: per-notebook read surface for the v1 GET API. Same
+  ::  data as +no-peek but JSON-encoded for HTTP. `rest` is the path
+  ::  remainder after /notes/~/v1/notebooks/{host}/{name}. Membership-
+  ::  gated like no-peek.
+  ++  no-read-json
+    |=  rest=path
+    ^-  (unit json)
+    ::  our.bowl, not src.bowl — see read-notebooks-json. The HTTP auth
+    ::  gate already ran; identity is the ship.
+    ?>  ?=(^ (~(get by members.notebook-state) our.bowl))
+    ?+    rest  ~
+        ~
+      ::  notebook detail
+      :-  ~
+      %-  notebook-detail:enjs:notes-json
+      [flag notebook.notebook-state visibility.notebook-state]
+    ::
+        [%folders ~]
+      `(folders:enjs:notes-json ~(val by folders.notebook-state))
+    ::
+        [%folders @ ~]
+      =/  fid=@ud  (slav %ud i.t.rest)
+      ?~  fld=(~(get by folders.notebook-state) fid)  ~
+      `(folder:enjs:notes-json u.fld)
+    ::
+        [%notes ~]
+      `(notes:enjs:notes-json ~(val by notes.notebook-state))
+    ::
+        [%notes @ ~]
+      =/  nid=@ud  (slav %ud i.t.rest)
+      ?~  note=(~(get by notes.notebook-state) nid)  ~
+      `(note:enjs:notes-json u.note)
+    ::
+        [%notes @ %history ~]
+      =/  nid=@ud  (slav %ud i.t.rest)
+      :-  ~
+      %-  note-revisions:enjs:notes-json
+      (fall (~(get by history.notebook-state) nid) ~)
+    ::
+        [%members ~]
+      =/  mrecords=(list member-record:n)
+        %+  turn  ~(tap by members.notebook-state)
+        |=  [who=ship r=role:n]
+        [who r]
+      `(member-records:enjs:notes-json mrecords)
+    ==
   --
 --

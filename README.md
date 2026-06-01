@@ -19,8 +19,8 @@ A prototype Urbit-native writing app. Shared notebooks with plain Markdown, fold
 - **Routable UI** — `/notes/nb/<host>/<name>[/f/<fid>][/n/<nid>]` — browser back/forward, refresh, and deep links all work
 - **Resizable + collapsible columns** — 3px drag handles with persisted widths; sidebar collapses via a toggle button
 - **Mobile-friendly** — three-panel slide navigation, larger tap targets, contextual bottom footer per screen, hamburger for sidebar actions
-- **JSON API** — full HTTP access via eyre (pokes + scries)
-- **SSE subscriptions** — real-time event stream for UI sync
+- **HTTP / REST API** — full surface at `/notes/~/v1` with request-id correlated responses; per-ship `X-Api-Key` lets bots and MCP servers act on behalf of the host. OpenAPI 3.1 spec served at [`/notes/openapi.json`](docs/openapi.yaml)
+- **SSE subscriptions** — real-time event stream for UI sync; per-request streams for awaiting v1 action results ([docs/asyncapi.yaml](docs/asyncapi.yaml))
 - **Desktop sync companion** — Tauri macOS menubar app (`app/src-tauri`) mirrors notes to a folder of `.md` files (builds via `.github/workflows/desktop-app.yml`)
 - **Self-hosted UI** — HTML served directly from the agent at `/notes`
 
@@ -60,6 +60,45 @@ Rsync the desk contents into your ship's mounted `%notes` desk, then:
 The UI will be available at `http://localhost:8080/notes` (adjust port to your ship's eyre binding).
 
 ## API
+
+The v1 HTTP API is the canonical surface — every write returns a typed response correlated by `request-id`, and reads cover the same shapes as the legacy scries. Specs live at [docs/openapi.yaml](docs/openapi.yaml) (and a generated `docs/openapi.json` served live at `/notes/openapi.json`) and [docs/asyncapi.yaml](docs/asyncapi.yaml) for the SSE streams. The legacy `%notes-action` poke and `/x/v0/*` scries documented below still work for in-Urbit callers.
+
+### v1 HTTP API (`/notes/~/v1`)
+
+Auth: an eyre session cookie **or** the `X-Api-Key` header. Each ship mints a key on first install — fetch it from `/x/v0/api-key.json` (cookie-gated, local only), or call `regenerate-api-key` / `clear-api-key` via the v1 POST.
+
+**Submit any action** — JSON envelope, `requestId` optional (server mints one if absent or malformed):
+
+```
+POST /notes/~/v1
+{"requestId": "0v1.foo...", "action": {"create-notebook": "My Notebook"}}
+```
+
+The connection stays open until the action terminates; the body is the typed response (`%ok` / `%notebook` / `%api-key` / `%error` / `%pending` on timeout). If you'd rather poll, `GET /notes/~/v1/request/<uv>` returns the current state of a known request.
+
+**REST writes** — convenience endpoints for cheap models / hand-rolled clients:
+
+```
+POST   /notes/~/v1/notebooks                              {"title": "..."}
+POST   /notes/~/v1/notebooks/~host/<name>/notes           {"folder": N, "title": "...", "body": "..."}
+POST   /notes/~/v1/notebooks/~host/<name>/folders         {"parent": N|null, "name": "..."}
+PUT    /notes/~/v1/notebooks/~host/<name>/notes/<id>      {"body": "...", "expectedRevision": N}
+DELETE /notes/~/v1/notebooks/~host/<name>/notes/<id>
+```
+
+**GET reads** — JSON, same shapes as the scries (but our.bowl identity, so a bot with the key sees what the owner sees):
+
+```
+GET /notes/~/v1/notebooks
+GET /notes/~/v1/notebooks/~host/<name>
+GET /notes/~/v1/notebooks/~host/<name>/folders
+GET /notes/~/v1/notebooks/~host/<name>/folders/<id>
+GET /notes/~/v1/notebooks/~host/<name>/notes
+GET /notes/~/v1/notebooks/~host/<name>/notes/<id>
+GET /notes/~/v1/notebooks/~host/<name>/notes/<id>/history
+GET /notes/~/v1/notebooks/~host/<name>/members
+GET /notes/~/v1/invites
+```
 
 ### Pokes (via eyre channel)
 
@@ -102,15 +141,26 @@ Publishing (host-only, not forwarded to remote hosts):
 {"unpublish-note": {"notebookId": 1, "noteId": 3}}
 ```
 
+API key (local-only — cookie-authenticated callers can rotate or clear):
+```json
+{"regenerate-api-key": null}
+{"clear-api-key": null}
+```
+
 ### Scries (via `/~/scry/notes/`)
 
 ```
 /v0/notebooks.json                    — all notebooks (includes visibility)
 /v0/notebook/<ship>/<name>.json       — single notebook
 /v0/folders/<ship>/<name>.json        — folders in notebook
+/v0/folder/<ship>/<name>/<id>.json    — single folder
 /v0/notes/<ship>/<name>.json          — notes in notebook
+/v0/note/<ship>/<name>/<id>.json      — single note
+/v0/note-history/<ship>/<name>/<id>.json  — revision archive for a note
 /v0/members/<ship>/<name>.json        — members of notebook
+/v0/invites.json                      — pending invites we've received
 /v0/published.json                    — list of {host, flagName, noteId}
+/v0/api-key.json                      — our X-Api-Key (cookie-gated, local only)
 ```
 
 ### Subscriptions
@@ -121,7 +171,9 @@ Subscribe to `/v0/notes/<ship>/<name>/stream` for real-time UI updates:
 - `note-created`, `note-updated`, `note-renamed`, `note-moved`, `note-deleted`
 - `member-joined`, `member-left`
 
-Remote subscribers watch `/v0/notes/<ship>/<name>/updates` for replication.
+`/v0/inbox/stream` carries top-level events (invite received/removed, notebooks-changed). Remote subscribers watch `/v0/notes/<ship>/<name>/updates` for replication.
+
+For the v1 HTTP API, each in-flight action has its own SSE path `/v1/request/<uv>` that receives one terminal `notes-response-1` fact when the action finalizes. See [docs/asyncapi.yaml](docs/asyncapi.yaml) for the full stream contract.
 
 ### Published notes (HTTP)
 
@@ -134,23 +186,29 @@ Published notes are served as standalone HTML at:
 ## Desk Structure
 
 ```
-app/notes.hoon             — Gall agent (eyre binding, HTTP handler, SSE, state migrations)
-app/notes-ui/index.html    — source HTML for the UI (working copy — edit here)
-sur/notes.hoon             — types (notebook, folder, note, visibility, state-0..4)
-lib/notes-json.hoon        — JSON encoding/decoding
-lib/notes-ui.hoon          — generated cord of index.html (what the agent actually serves)
-mar/notes/action.hoon      — client action mark
-mar/notes/command.hoon     — server command mark
-mar/notes/update.hoon      — canonical update mark
-mar/notes/response.hoon    — client response mark
-mar/json.hoon              — JSON mark with mime grow arm
-mar/html.hoon              — HTML mark
-desk.bill                  — agent manifest
-desk.docket-0              — app metadata
-sys.kelvin                 — kelvin 409/410
+app/notes.hoon                — Gall agent (eyre binding, v1 HTTP handler, SSE, request-id lifecycle, state migrations)
+app/notes-ui/index.html       — source HTML for the UI (working copy — edit here)
+sur/notes.hoon                — types: notebook/folder/note, ACUR shapes, v1 request/response, state-N for migrations
+lib/notes-json.hoon           — JSON encoding/decoding for all types
+lib/notes-ui.hoon             — generated cord of index.html (what the agent actually serves)
+lib/notes-openapi.hoon        — generated cord of the OpenAPI spec (served at /notes/openapi.json)
+mar/notes/action.hoon         — legacy client action mark (still wired)
+mar/notes/action-1.hoon       — v1 client action mark (request-id wrapped)
+mar/notes/command.hoon        — legacy cross-ship command mark
+mar/notes/command-1.hoon      — v1 cross-ship command mark
+mar/notes/response.hoon       — legacy response mark
+mar/notes/response-1.hoon     — v1 response mark (terminal body for a request-id)
+mar/notes/response-update-1.hoon — v1 update mark (per-request facts)
+mar/notes/{notebooks,notebook,folders,folder,notes,note,note-history,members,invites,published}.hoon
+                              — typed peek marks (each has noun + json grow arms)
+docs/openapi.yaml             — OpenAPI 3.1 spec for /notes/~/v1
+docs/asyncapi.yaml            — AsyncAPI 3.0 spec for the SSE streams
+scripts/build-notes-openapi.sh — regenerate lib/notes-openapi.hoon from docs/openapi.yaml
+scripts/build-notes-ui.sh     — regenerate lib/notes-ui.hoon from app/notes-ui/index.html
+desk.bill / desk.docket-0 / sys.kelvin
 ```
 
-See [AGENTS.md](AGENTS.md) for the development workflow (editing the UI, the `++dummy` recompile trick, syncing to a moon).
+See [AGENTS.md](AGENTS.md) for the development workflow (editing the UI, the `++dummy` recompile trick, regenerating the OpenAPI lib, syncing to a moon).
 
 ## License
 

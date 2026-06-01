@@ -105,6 +105,11 @@
       [%accept-invite =flag]
       [%decline-invite =flag]
       [%notebook =flag =a-notebook]
+      ::  api-key management — local-only (?> =(our.bowl src.bowl) at the
+      ::  poke handler). Regenerate replaces the stored key; clear erases
+      ::  it (disabling the X-Api-Key bypass).
+      [%regenerate-api-key ~]
+      [%clear-api-key ~]
   ==
 ::
 ::  $a-notebook: actions scoped to a specific notebook.
@@ -129,6 +134,9 @@
   $%  [%rename name=@t]
       [%move new-parent=@ud]
       [%delete recursive=?]
+      ::  %update: REST-friendly combined rename+move. Either or both
+      ::  fields may be set; the handler is a no-op for fields left ~.
+      [%update name=(unit @t) parent=(unit @ud)]
   ==
 ::
 ::  $a-note: actions scoped to a specific note
@@ -138,6 +146,10 @@
       [%move folder=@ud]
       [%delete ~]
       [%update body=@t expected-revision=@ud]
+      ::  %modify: REST-friendly combined rename+move. Either or both
+      ::  fields may be set; body updates stay on %update so the
+      ::  revision-check semantics don't get tangled with metadata edits.
+      [%modify title=(unit @t) folder=(unit @ud)]
       [%publish html=@t]
       [%unpublish ~]
       [%restore rev=@ud]
@@ -274,10 +286,114 @@
 +$  command   c-notes
 +$  response  r-notes
 ::
+::  v1: HTTP / request-id surface
+::  ============================================================
+::
+::  Wraps a-notes / c-notes / r-notes / update with a correlating
+::  request-id so the client gets a typed terminal response keyed to
+::  its action. Consumed by the HTTP API mount (/notes/~/v1) and the
+::  per-request SSE paths (/v1/notes/~ship/name/request/...).
+::
+++  v1
+  |%
+  +$  request-id  @uv
+  +$  poke-status  ?(%sending %acked %nacked)
+  ::  $action-error: enumerated failure modes returned in response-body.
+  ::  %conflict — expected-revision mismatch (drives editor conflict banner).
+  +$  action-error
+    $?  %not-authorized
+        %not-found
+        %invalid-name
+        %conflict
+        %request-too-large
+        %unknown
+    ==
+  +$  action            [=request-id =a-notes]
+  +$  command           [=request-id =c-notes]
+  +$  response          [id=request-id body=response-body]
+  +$  response-update   [id=request-id body=response-update-body]
+  ::  $response-body: subscriber → client.
+  ::  %ok        — a notebook mutation (snapshot/update); carries flag inline
+  ::  %notebook  — a freshly-created notebook's summary (flag + metadata +
+  ::               visibility). Returned by %create-notebook so the caller
+  ::               learns the slugified flag without re-scrying.
+  ::  %api-key   — the current api-key after a regenerate/clear. ~ = cleared.
+  ::  %error     — typed failure
+  ::  %pending   — cross-ship request still in flight; poll / sub the path
+  +$  response-body
+    $%  [%no-change ~]
+        [%ok =r-notes]
+        [%notebook summary=notebook-summary]
+        [%api-key key=(unit @t)]
+        [%error type=action-error message=tang]
+        [%pending status=poke-status]
+    ==
+  ::  $response-update-body: host → subscriber. Carries the host's
+  ::  applied update (or error); subscriber wraps it as a response
+  ::  using the request-path flag for client delivery.
+  +$  response-update-body
+    $%  [%no-change ~]
+        [%ok =update]
+        [%error type=action-error message=tang]
+    ==
+  ::  $incoming-request: subscriber-side tracking record for a single
+  ::  in-flight action. http-id non-null means an Eyre POST is being
+  ::  held open waiting for the terminal response. final-at is set
+  ::  when result is %ok / %error / %no-change; cleanup uses it to
+  ::  evict the entry after a grace window.
+  +$  incoming-request
+    $:  id=request-id
+        http-id=(unit @ta)
+        =poke-status
+        result=(unit response-body)
+        final-at=(unit @da)
+        fetched=?
+    ==
+  +$  requests  (map request-id incoming-request)
+  --
+::
 ::  Versioned state — newest first
 ::  ============================================================
 ::
-::  state-10: current — flag.name tightened to @tas slug
+::  state-13: adds rid-counter so synthesized request-ids (the legacy
+::  %notes-action poke arm + any other callers without a client-side
+::  uv generator) are guaranteed unique across pokes within an event
+::  budget that doesn't advance bowl.eny — i.e., test-agent.
++$  state-13
+  $:  %13
+      books=(map flag [=net =notebook-state])
+      next-id=@ud
+      published=(map [=flag note-id=@ud] @t)
+      invites=(map flag invite-info)
+      requests=requests:v1
+      api-key=(unit @t)
+      rid-counter=@ud
+  ==
+::
++$  state  state-13
+::
+::  state-12: adds api-key for the X-Api-Key HTTP auth bypass.
++$  state-12
+  $:  %12
+      books=(map flag [=net =notebook-state])
+      next-id=@ud
+      published=(map [=flag note-id=@ud] @t)
+      invites=(map flag invite-info)
+      requests=requests:v1
+      api-key=(unit @t)
+  ==
+::
+::  state-11: adds requests map for HTTP / request-id correlation
++$  state-11
+  $:  %11
+      books=(map flag [=net =notebook-state])
+      next-id=@ud
+      published=(map [=flag note-id=@ud] @t)
+      invites=(map flag invite-info)
+      requests=requests:v1
+  ==
+::
+::  state-10: flag.name tightened to @tas slug (no requests map)
 +$  state-10
   $:  %10
       books=(map flag [=net =notebook-state])
@@ -285,8 +401,6 @@
       published=(map [=flag note-id=@ud] @t)
       invites=(map flag invite-info)
   ==
-::
-+$  state  state-10
 ::
 ::  state-9: visibility + history moved per-notebook; members renamed.
 ::  Uses flag-v9 (name=@t) in map keys — stored atoms weren't valid @tas.

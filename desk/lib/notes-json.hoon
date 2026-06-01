@@ -18,6 +18,8 @@
     %-  pairs
     :~  ['id' (numb id.nb)]
         ['title' s+title.nb]
+        ::  rootFolderId is deterministically id+1 (set by se-create-notebook)
+        ['rootFolderId' (numb +(id.nb))]
         ['createdBy' s+(scot %p created-by.nb)]
         ['createdAt' (numb (da-to-unix created-at.nb))]
         ['updatedAt' (numb (da-to-unix updated-at.nb))]
@@ -347,6 +349,163 @@
           ['visibility' s+(scot %tas visibility.res)]
       ==
     ==
+  ::
+  ::  +tang-json: render a tang as a JSON array.
+  ::  TODO Phase 2+: render each tank to a tape with wash/re. Today we
+  ::  emit an empty array; the typed errorType field carries the
+  ::  actionable info, the tang is debug-only.
+  ++  tang-json
+    |=  ts=tang
+    ^-  json
+    [%a ~]
+  ::
+  ::  v1: request-id-wrapped response shapes
+  ::  encoded for delivery over /notes/~/v1 HTTP and /v1 SSE paths.
+  ++  v1
+    |%
+    ++  action-error
+      |=  e=action-error:v1:n
+      ^-  json
+      s+(scot %tas e)
+    ::
+    ++  poke-status
+      |=  s=poke-status:v1:n
+      ^-  json
+      s+(scot %tas s)
+    ::
+    ::  +response: subscriber → client. Encoded as {requestId, body}.
+    ++  response
+      |=  res=response:v1:n
+      ^-  json
+      %-  pairs
+      :~  ['requestId' s+(scot %uv id.res)]
+          ['body' (response-body body.res)]
+      ==
+    ::
+    ++  response-body
+      |=  bod=response-body:v1:n
+      ^-  json
+      ?-  -.bod
+          %no-change
+        (pairs ~[['type' s+'no-change']])
+      ::
+          %ok
+        ::  ^response = outer r-notes encoder
+        %-  pairs
+        :~  ['type' s+'ok']
+            ['response' (^response r-notes.bod)]
+        ==
+      ::
+          %notebook
+        ::  notebook-summary = outer encoder (host, flagName, notebook, visibility)
+        %-  pairs
+        :~  ['type' s+'notebook']
+            ['notebook' (notebook-summary summary.bod)]
+        ==
+      ::
+          %api-key
+        %-  pairs
+        :~  ['type' s+'api-key']
+            ['apiKey' ?~(key.bod ~ s+u.key.bod)]
+        ==
+      ::
+          %error
+        %-  pairs
+        :~  ['type' s+'error']
+            ['errorType' (action-error type.bod)]
+            ['message' (tang-json message.bod)]
+        ==
+      ::
+          %pending
+        %-  pairs
+        :~  ['type' s+'pending']
+            ['status' (poke-status status.bod)]
+        ==
+      ==
+    ::
+    ::  +response-update: host → subscriber. Not delivered to browser
+    ::  clients directly; subscriber transforms to response. Encoded for
+    ::  debug visibility / future tooling.
+    ++  response-update
+      |=  ru=response-update:v1:n
+      ^-  json
+      %-  pairs
+      :~  ['requestId' s+(scot %uv id.ru)]
+          ['body' (response-update-body body.ru)]
+      ==
+    ::
+    ++  response-update-body
+      |=  bod=response-update-body:v1:n
+      ^-  json
+      ?-  -.bod
+          %no-change
+        (pairs ~[['type' s+'no-change']])
+      ::
+          %ok
+        ::  encode update.time + raw u-notebook (no flag; caller knows it)
+        %-  pairs
+        :~  ['type' s+'ok']
+            ['time' (numb (da-to-unix time.update.bod))]
+            ['update' (u-notebook-bare u-notebook.update.bod)]
+        ==
+      ::
+          %error
+        %-  pairs
+        :~  ['type' s+'error']
+            ['errorType' (action-error type.bod)]
+            ['message' (tang-json message.bod)]
+        ==
+      ==
+    ::
+    ::  +u-notebook-bare: u-notebook encoder that omits flag (the request
+    ::  path carries it). Mirrors the outer +u-notebook arm body without
+    ::  the host/flagName fields.
+    ++  u-notebook-bare
+      |=  upd=u-notebook:n
+      ^-  json
+      %-  pairs
+      ?-  -.upd
+          %created
+        :~  ['type' s+'notebook-created']
+            ['notebook' (notebook notebook.upd)]
+            ['visibility' s+(scot %tas visibility.upd)]
+        ==
+          %updated
+        :~  ['type' s+'notebook-updated']
+            ['notebook' (notebook notebook.upd)]
+        ==
+          %deleted
+        ~[['type' s+'notebook-deleted']]
+          %visibility
+        :~  ['type' s+'notebook-visibility-changed']
+            ['visibility' s+(scot %tas visibility.upd)]
+        ==
+          %member-joined
+        :~  ['type' s+'member-joined']
+            ['who' s+(scot %p who.upd)]
+            ['role' s+(scot %tas role.upd)]
+        ==
+          %member-left
+        :~  ['type' s+'member-left']
+            ['who' s+(scot %p who.upd)]
+        ==
+          %invite-received
+        :~  ['type' s+'invite-received']
+            ['from' s+(scot %p from.upd)]
+            ['title' s+title.upd]
+        ==
+          %invite-removed
+        ~[['type' s+'invite-removed']]
+          %folder
+        :~  ['type' s+'folder-update']
+            ['folderUpdate' (u-folder id.upd u-folder.upd)]
+        ==
+          %note
+        :~  ['type' s+'note-update']
+            ['noteUpdate' (u-note id.upd u-note.upd)]
+        ==
+      ==
+    --
   --
 ::
 ::  +dejs: decode JSON to notes types
@@ -376,6 +535,9 @@
       [%move ((ot ~[['newParent' ni]]) jon)]
         %'delete'
       [%delete ((ot ~[['recursive' bo]]) jon)]
+        %'update'
+      :-  %update
+      ((ot ~[['name' (mu so)] ['parent' (mu ni)]]) jon)
     ==
   ::
   ::  +a-note: parse a-note action object {type, ...fields}
@@ -400,6 +562,9 @@
       [%unpublish ~]
         %'restore'
       [%restore ((ot ~[['rev' ni]]) jon)]
+        %'modify'
+      :-  %modify
+      ((ot ~[['title' (mu so)] ['folder' (mu ni)]]) jon)
     ==
   ::
   ::  +a-notebook: parse a-notebook action object {type, ...fields}
@@ -494,5 +659,23 @@
       ((ot ~[['name' so] ['children' (ar import-node)]]) jon)
     :-  %note
     ((ot ~[['title' so] ['body' so]]) jon)
+  ::
+  ::  v1: request-id-wrapped action parsing
+  ::  POST body: {"requestId": "0v...", "action": <a-notes JSON>}
+  ++  v1
+    |%
+    ++  action
+      |=  jon=json
+      ^-  action:v1:n
+      ?>  ?=([%o *] jon)
+      =/  rid-j=(unit json)  (~(get by p.jon) 'requestId')
+      =/  act-j=(unit json)  (~(get by p.jon) 'action')
+      ?>  ?=(^ rid-j)
+      ?>  ?=(^ act-j)
+      ?>  ?=([%s *] u.rid-j)
+      =/  rid=@uv  (slav %uv p.u.rid-j)
+      ::  ^action: outer a-notes parser
+      [rid (^action u.act-j)]
+    --
   --
 --

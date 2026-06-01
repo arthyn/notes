@@ -18,6 +18,128 @@
   |=  a=action:n
   (do-poke %notes-action !>(a))
 ::
+::  +poke-a-v1: poke via %notes-action-1 with a request-id wrapped action
+++  poke-a-v1
+  |=  a=action:v1:n
+  (do-poke %notes-action-1 !>(a))
+::
+::  +poke-c-v1: poke via %notes-command-1 with a request-id wrapped command
+++  poke-c-v1
+  |=  c=command:v1:n
+  (do-poke %notes-command-1 !>(c))
+::
+::  +http-post-v1: simulate an eyre %handle-http-request poke targeting
+::  /notes/~/v1. authenticated=| so the only thing that can let it past
+::  the agent's auth gate is a valid X-Api-Key header.
+++  http-post-v1
+  |=  [hdrs=(list [@t @t]) body=@t]
+  =/  req=request:http
+    :*  %'POST'
+        '/notes/~/v1'
+        hdrs
+        `[(met 3 body) body]
+    ==
+  =/  inbound=inbound-request:eyre
+    [authenticated=| secure=| address=[%ipv4 .0.0.0.0] request=req]
+  (do-poke %handle-http-request !>([`@ta`'test-eyre-1' inbound]))
+::
+::  +http-get-v1: simulate an unauthenticated eyre %handle-http-request
+::  GET targeting an arbitrary /notes/* url.
+++  http-get-v1
+  |=  [hdrs=(list [@t @t]) url=@t]
+  =/  req=request:http
+    [%'GET' url hdrs ~]
+  =/  inbound=inbound-request:eyre
+    [authenticated=| secure=| address=[%ipv4 .0.0.0.0] request=req]
+  (do-poke %handle-http-request !>([`@ta`'test-eyre-get' inbound]))
+::
+::  +http-req-v1: simulate an eyre %handle-http-request with arbitrary
+::  method + url + body (empty body = no octs). For the first-class REST
+::  write endpoints.
+++  http-req-v1
+  |=  [method=method:http hdrs=(list [@t @t]) url=@t body=@t]
+  =/  req=request:http
+    [method url hdrs ?:(=('' body) ~ `[(met 3 body) body])]
+  =/  inbound=inbound-request:eyre
+    [authenticated=| secure=| address=[%ipv4 .0.0.0.0] request=req]
+  (do-poke %handle-http-request !>([`@ta`'test-eyre-w' inbound]))
+::
+::  +http-status: extract HTTP status code from a %http-response-header
+::  fact card, if any. Cards from http-error and give-http-response carry
+::  a response-header:http vase; axis +>+- of the card is the cage mark,
+::  axis +.+>+ is the vase. !< on a small vase is fast.
+++  http-status
+  |=  caz=(list card)
+  ^-  (unit @ud)
+  |-  ^-  (unit @ud)
+  ?~  caz  ~
+  ?.  ?=([%give %fact * *] i.caz)  $(caz t.caz)
+  ?.  =(`mark`-.+>+.i.caz %http-response-header)
+    $(caz t.caz)
+  =/  rh=response-header:http  !<(response-header:http +.+>+.i.caz)
+  `status-code.rh
+::
+::  Card introspection helpers. Hoon's `?=` narrowing on a $% card type
+::  doesn't propagate inner `=face` shorthand through the union, so we
+::  reach into the card by axis lark and compare raw nouns. (`;;` casts
+::  would also work but recursively clam vases — that single test takes
+::  ~90s, vs <1s with raw noun equality.)
+::
+::  Card layouts:
+::    [%give %fact paths cage]    fact gift: axis 14=paths, 30=mark, 31=vase
+::    [%pass wire %agent gill %watch path]   axis 6=wire, 63=path
+::    [%pass wire %agent gill %poke cage]    axis 6=wire, 62=mark, 63=vase
+::    [%pass wire %arvo vane task]           axis 6=wire
+::
+::  +has-fact-mark: any %give %fact card carries the given mark
+++  has-fact-mark
+  |=  [caz=(list card) m=mark]
+  ^-  ?
+  %+  lien  caz
+  |=  c=card
+  ?.  ?=([%give %fact * *] c)  |
+  =(-.+>+.c m)
+::
+::  +has-watch-on-path: any %pass %agent %watch card targets `pax`
+++  has-watch-on-path
+  |=  [caz=(list card) pax=path]
+  ^-  ?
+  %+  lien  caz
+  |=  c=card
+  ?.  ?=([%pass * %agent * %watch *] c)  |
+  =(+>+>+.c pax)
+::
+::  +has-poke-mark: any %pass %agent %poke card carries the given mark
+++  has-poke-mark
+  |=  [caz=(list card) m=mark]
+  ^-  ?
+  %+  lien  caz
+  |=  c=card
+  ?.  ?=([%pass * %agent * %poke *] c)  |
+  =(-.+>+>+.c m)
+::
+::  +has-wait-on-wire: any %pass %arvo %b %wait card on the given wire
+++  has-wait-on-wire
+  |=  [caz=(list card) wir=wire]
+  ^-  ?
+  %+  lien  caz
+  |=  c=card
+  ?.  ?=([%pass * %arvo %b %wait *] c)  |
+  =(+<.c wir)
+::
+::  +find-poke-wire: first %pass %agent %poke card's wire, if any.
+::  Used by failure-recovery tests to feed a synthetic nack back
+::  through on-agent without hard-coding wire reconstruction details.
+++  find-poke-wire
+  |=  caz=(list card)
+  ^-  (unit wire)
+  |-  ^-  (unit wire)
+  ?~  caz  ~
+  ?:  ?=([%pass * %agent * %poke *] i.caz)
+    `+<.i.caz
+  $(caz t.caz)
+::
+::
 ::  +init-zod: init agent as ~zod; discard cards
 ++  init-zod
   =/  m  (mare ,~)
@@ -247,7 +369,7 @@
   ;<  *  b  (poke-a [%notebook f [%visibility %public]])
   ;<  *  b  (set-src ~bus)
   ;<  caz=(list card)  b
-    (do-poke %notes-command !>(`command:n`[%notebook f [%member-join ~]]))
+    (do-poke %notes-command-1 !>(`command:v1:n`[`@uv`0v1 [%notebook f [%member-join ~]]]))
   ;<  ~  b  (ex-cards-ne caz)
   ;<  *  b  (set-src our.bowl)
   ;<  mbrs=cage  b  (peek-mbrs f)
@@ -298,6 +420,50 @@
   ;<  ~  b  (ex-cards-ne caz)
   ;<  sub=cage  b  (peek-fld f 4)
   (ex-mark sub %notes-folder)
+::
+::  ====  test-create-folder-null-parent-uses-root  ====
+::  parent=~ resolves to the notebook's root (nb.id + 1 = 2). After
+::  notebook id=1 + root id=2, the new folder gets fid=3 with parent=2.
+++  test-create-folder-null-parent-uses-root
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  *  b  (poke-a [%create-notebook 'NB'])
+  =/  f=flag:n  (nb-flag our.bowl 'NB' 1)
+  ;<  *  b  (poke-a [%notebook f [%create-folder ~ 'Orphan?']])
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?~  entry=(~(get by books.s) f)  |+['notebook missing']~
+  ?~  fld=(~(get by folders.notebook-state.u.entry) 3)
+    |+['folder fid=3 not created']~
+  ?.  =(`2 parent-folder-id.u.fld)
+    |+~[(crip "expected parent=2 (root), got {<parent-folder-id.u.fld>}")]
+  &+[~ s2]
+::
+::  ====  test-create-folder-bad-parent-rejected  ====
+::  parent points at an id that doesn't exist → crash. ex-fail ensures
+::  the poke failed AND folders.notebook-state is unchanged.
+++  test-create-folder-bad-parent-rejected
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  *  b  (poke-a [%create-notebook 'NB'])
+  =/  f=flag:n  (nb-flag our.bowl 'NB' 1)
+  ;<  ~  b  (ex-fail (poke-a [%notebook f [%create-folder `999 'Bad']]))
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?~  entry=(~(get by books.s) f)  |+['notebook missing']~
+  ?.  =(1 ~(wyt by folders.notebook-state.u.entry))
+    |+['rejected poke should not have created a folder']~
+  &+[~ s2]
 ::
 ::  ====  test-rename-folder  ====
 ++  test-rename-folder
@@ -786,7 +952,7 @@
   ;<  ~  b  (ex-cards-ne caz)
   ::  invites map is now empty
   ;<  sv=vase  b  get-save
-  =/  s10-after=state-10:n  !<(state-10:n sv)
+  =/  s10-after=state-13:n  !<(state-13:n sv)
   |=  s=state
   ?.  =(~ invites.s10-after)
     |+['expected empty invites map after accept-invite']~
@@ -808,7 +974,7 @@
   =/  remote-flag=flag:n  [~bus `@tas`'5']
   ;<  *  b  (poke-a [%decline-invite remote-flag])
   ;<  sv=vase  b  get-save
-  =/  s10-after=state-10:n  !<(state-10:n sv)
+  =/  s10-after=state-13:n  !<(state-13:n sv)
   |=  s=state
   ?.  =(~ invites.s10-after)
     |+['expected empty invites map after decline-invite']~
@@ -845,8 +1011,8 @@
     [%7 bks 2 ~ ~ inv hist]
   ;<  *  b  (do-load notes-agent `!>(s7))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
-  =/  s10=state-10:n  !<(state-10:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
+  =/  s10=state-13:n  !<(state-13:n sv)
   ::  expected slug for [~zod '1'] with title 'S7-NB' nid=1 → 's7-nb-1'
   =/  new-f=flag:n  [~zod (slugify-test 'S7-NB' 1)]
   |=  s=state
@@ -874,7 +1040,7 @@
   =/  s6=state-6:n  [%6 ~ 0 ~ ~ ~]
   ;<  *  b  (do-load notes-agent `!>(s6))
   ;<  sv=vase  b  get-save
-  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
+  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
 ::
 ::  ====  test-migrate-state-6-preserves-notebook  ====
 ::  state-6 with one notebook migrates and the notebook is reachable.
@@ -920,7 +1086,7 @@
   =/  s3=state-3:n  [%3 bks 2 ~]
   ;<  *  b  (do-load notes-agent `!>(s3))
   ;<  sv=vase  b  get-save
-  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
+  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
 ::
 ::  ====  test-migrate-state-2-to-10  ====
 ::  state-2 published (bare @ud key) is dropped; published in state-10 is empty.
@@ -943,7 +1109,7 @@
     [%2 bks 2 (~(put by *(map @ud @t)) 1 '<h1>Old</h1>')]
   ;<  *  b  (do-load notes-agent `!>(s2))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
   ;<  pub=cage  b  (got-peek /x/v0/published)
   ;<  ~  b  (ex-mark pub %notes-published)
   |=  s=state
@@ -994,87 +1160,87 @@
   =/  s1=state-1:n  [%1 bks 4]
   ;<  *  b  (do-load notes-agent `!>(s1))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
-  =/  s10=state-10:n  !<(state-10:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
+  =/  s13=state-13:n  !<(state-13:n sv)
   =/  new-f=flag:n  [~zod (slugify-test 'S1-NB' 1)]
   |=  s=state
   ::  exactly one notebook in books, under the new slug; old key gone
-  ?.  =(1 ~(wyt by books.s10))
-    |+['expected single notebook in books after state-1→10']~
-  ?.  (~(has by books.s10) new-f)
-    |+['expected new slugified flag present after state-1→10']~
-  ?.  !(~(has by books.s10) [~zod `@tas`'1'])
-    |+['expected old flag-v9 key gone after state-1→10']~
+  ?.  =(1 ~(wyt by books.s13))
+    |+['expected single notebook in books']~
+  ?.  (~(has by books.s13) new-f)
+    |+['expected new slugified flag present']~
+  ?.  !(~(has by books.s13) [~zod `@tas`'1'])
+    |+['expected old flag-v9 key gone']~
   ::  next-id preserved; cross-cutting maps empty
-  ?.  =(4 next-id.s10)
-    |+['expected next-id preserved at 4 after state-1→10']~
-  ?.  =(~ published.s10)
-    |+['expected published empty after state-1→10']~
-  ?.  =(~ invites.s10)
-    |+['expected invites empty after state-1→10']~
+  ?.  =(4 next-id.s13)
+    |+['expected next-id preserved at 4']~
+  ?.  =(~ published.s13)
+    |+['expected published empty']~
+  ?.  =(~ invites.s13)
+    |+['expected invites empty']~
   ::  drill into the migrated notebook entry
-  =/  entry=[=net:n =notebook-state:n]  (~(got by books.s10) new-f)
+  =/  entry=[=net:n =notebook-state:n]  (~(got by books.s13) new-f)
   ::  net=%pub (log re-initialized empty during state-7→8)
   ?.  ?=([%pub *] net.entry)
-    |+['expected net=%pub after state-1→10']~
+    |+['expected net=%pub']~
   =/  migrated-nb-s=notebook-state:n  notebook-state.entry
   ::  notebook: id/title/created-by preserved; updated-by backfilled from created-by
   ?.  =(1 id.notebook.migrated-nb-s)
-    |+['expected notebook id=1 preserved after state-1→10']~
+    |+['expected notebook id=1 preserved']~
   ?.  =('S1-NB' title.notebook.migrated-nb-s)
-    |+['expected notebook title preserved after state-1→10']~
+    |+['expected notebook title preserved']~
   ?.  =(~zod created-by.notebook.migrated-nb-s)
-    |+['expected notebook created-by preserved after state-1→10']~
+    |+['expected notebook created-by preserved']~
   ?.  =(~zod updated-by.notebook.migrated-nb-s)
-    |+['expected notebook updated-by backfilled from created-by after state-1→10']~
+    |+['expected notebook updated-by backfilled from created-by']~
   ::  visibility defaults to %private during state-8→9
   ?.  =(%private visibility.migrated-nb-s)
-    |+['expected visibility=%private default after state-1→10']~
+    |+['expected visibility=%private default']~
   ::  history map empty (state-1 had no history)
   ?.  =(~ history.migrated-nb-s)
-    |+['expected empty history after state-1→10']~
+    |+['expected empty history']~
   ::  members preserved verbatim
   ?.  =(2 ~(wyt by members.migrated-nb-s))
-    |+['expected 2 members preserved after state-1→10']~
+    |+['expected 2 members preserved']~
   ?.  =(%owner (~(got by members.migrated-nb-s) ~zod))
-    |+['expected ~zod still owner after state-1→10']~
+    |+['expected ~zod still owner']~
   ?.  =(%editor (~(got by members.migrated-nb-s) ~bus))
-    |+['expected ~bus still editor after state-1→10']~
+    |+['expected ~bus still editor']~
   ::  folders: both root + child present; updated-by backfilled
   ?.  =(2 ~(wyt by folders.migrated-nb-s))
-    |+['expected 2 folders after state-1→10']~
+    |+['expected 2 folders']~
   =/  mig-rf=folder:n  (~(got by folders.migrated-nb-s) 2)
   ?.  =(1 notebook-id.mig-rf)
-    |+['expected root folder notebook-id=1 after state-1→10']~
+    |+['expected root folder notebook-id=1']~
   ?.  =('/' name.mig-rf)
-    |+['expected root folder name preserved after state-1→10']~
+    |+['expected root folder name preserved']~
   ?.  =(~ parent-folder-id.mig-rf)
-    |+['expected root folder parent=~ after state-1→10']~
+    |+['expected root folder parent=~']~
   ?.  =(~zod updated-by.mig-rf)
-    |+['expected root folder updated-by backfilled after state-1→10']~
+    |+['expected root folder updated-by backfilled']~
   =/  mig-cf=folder:n  (~(got by folders.migrated-nb-s) 3)
   ?.  =(`2 parent-folder-id.mig-cf)
-    |+['expected child folder parent=2 preserved after state-1→10']~
+    |+['expected child folder parent=2 preserved']~
   ?.  =('Drafts' name.mig-cf)
-    |+['expected child folder name preserved after state-1→10']~
+    |+['expected child folder name preserved']~
   ?.  =(~zod updated-by.mig-cf)
-    |+['expected child folder updated-by backfilled after state-1→10']~
+    |+['expected child folder updated-by backfilled']~
   ::  note: every field intact; its existing updated-by (~bus) preserved
   ?.  =(1 ~(wyt by notes.migrated-nb-s))
-    |+['expected 1 note after state-1→10']~
+    |+['expected 1 note']~
   =/  mig-nt=note:n  (~(got by notes.migrated-nb-s) 4)
   ?.  =(2 folder-id.mig-nt)
-    |+['expected note folder-id=2 preserved after state-1→10']~
+    |+['expected note folder-id=2 preserved']~
   ?.  =('Hello' title.mig-nt)
-    |+['expected note title preserved after state-1→10']~
+    |+['expected note title preserved']~
   ?.  =('hello-body' body-md.mig-nt)
-    |+['expected note body preserved after state-1→10']~
+    |+['expected note body preserved']~
   ?.  =(~zod created-by.mig-nt)
-    |+['expected note created-by preserved after state-1→10']~
+    |+['expected note created-by preserved']~
   ?.  =(~bus updated-by.mig-nt)
-    |+['expected note updated-by preserved (~bus) after state-1→10']~
+    |+['expected note updated-by preserved (~bus)']~
   ?.  =(7 revision.mig-nt)
-    |+['expected note revision preserved at 7 after state-1→10']~
+    |+['expected note revision preserved at 7']~
   &+[~ s]
 ::
 ::  ====  test-migrate-state-4-backfills-updated-by  ====
@@ -1108,8 +1274,8 @@
   =/  s4=state-4:n  [%4 bks 4 ~ ~]
   ;<  *  b  (do-load notes-agent `!>(s4))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
-  =/  s10=state-10:n  !<(state-10:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
+  =/  s10=state-13:n  !<(state-13:n sv)
   =/  new-f=flag:n  [~zod (slugify-test 'S4-NB' 1)]
   =/  entry=[=net:n =notebook-state:n]  (~(got by books.s10) new-f)
   =/  migrated-nb-s=notebook-state:n  notebook-state.entry
@@ -1159,8 +1325,8 @@
   =/  s8=state-8:n  [%8 bks 2 ~ vis-map ~ hist-map]
   ;<  *  b  (do-load notes-agent `!>(s8))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
-  =/  s10=state-10:n  !<(state-10:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
+  =/  s10=state-13:n  !<(state-13:n sv)
   =/  new-f=flag:n  [~zod (slugify-test 'S8-NB' 1)]
   =/  entry=[=net:n =notebook-state:n]  (~(got by books.s10) new-f)
   |=  s=state
@@ -1470,8 +1636,8 @@
   =/  s9=state-9:n  [%9 bks 23 pub-map ~]
   ;<  *  b  (do-load notes-agent `!>(s9))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%10))
-  =/  s10=state-10:n  !<(state-10:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
+  =/  s10=state-13:n  !<(state-13:n sv)
   ::  expected new flags after slugify
   =/  new-fl-local=flag:n   [~zod (slugify-test 'My First' 11)]
   =/  new-fl-remote=flag:n  [~bus (slugify-test 'Bar Book' 22)]
@@ -1488,6 +1654,677 @@
   ?.  !(~(has by books.s10) [~zod `@tas`'11'])
     |+['expected old flag-v9 key gone after 9→10 migration']~
   &+[~ s]
+::
+::  ====  v1 / request-id surface tests  ====================================
+::
+::  ====  test-v1-create-notebook-returns-summary  ====
+::  Top-level v1 %create-notebook: the request must finalize with a
+::  %notebook body carrying the new notebook's flag + metadata, so a
+::  caller learns the slugified flag without re-scrying.
+++  test-v1-create-notebook-returns-summary
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  =/  rid=request-id:v1:n  0v1
+  ;<  caz=(list card)  b  (poke-a-v1 [rid [%create-notebook 'V1 NB']])
+  ;<  ~  b  (ex-cards-ne caz)
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  =/  f=flag:n  (nb-flag our.bowl 'V1 NB' 1)
+  |=  s2=state
+  ?~  req=(~(get by requests.s) rid)
+    |+['expected requests entry after v1 poke']~
+  ?~  result.u.req
+    |+['expected result on terminal request']~
+  ?.  ?=(%notebook -.u.result.u.req)
+    |+~[(crip "expected %notebook result, got {<-.u.result.u.req>}")]
+  ?.  =(flag.summary.u.result.u.req f)
+    |+['response summary carries the wrong flag']~
+  ?~  final-at.u.req
+    |+['expected final-at set on terminal request']~
+  ?.  (~(has by books.s) f)
+    |+['expected notebook to be created via v1 poke']~
+  &+[~ s2]
+::
+::  ====  test-v1-post-omitted-requestid-mints-one  ====
+::  A POST with no requestId (common for LLM tool-callers) must NOT 500
+::  — the server mints one, creates the notebook, returns 200.
+++  test-v1-post-omitted-requestid-mints-one
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  sv0=vase  b  get-save
+  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
+  =/  body=@t  '{"action":{"type":"create-notebook","title":"NoRid"}}'
+  ;<  caz=(list card)  b  (http-post-v1 ~[['x-api-key' key]] body)
+  =/  f=flag:n  (nb-flag our.bowl 'NoRid' 1)
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?~  api-key.s0  |+['no api-key after init']~
+  ::  must not have 500'd — header card present, status 200
+  =/  st=(unit @ud)  (http-status caz)
+  ?.  =(st `200)
+    |+~[(crip "expected 200 for requestId-less POST, got {<st>}")]
+  ?.  (~(has by books.s) f)
+    |+['notebook not created from requestId-less POST']~
+  &+[~ s2]
+::
+::  ====  test-v1-post-garbage-requestid-no-500  ====
+::  A non-@uv requestId must be tolerated (server mints), not crash.
+++  test-v1-post-garbage-requestid-no-500
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  sv0=vase  b  get-save
+  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
+  =/  body=@t
+    '{"requestId":"not-a-valid-uv-!!","action":{"type":"create-notebook","title":"Garbage"}}'
+  ;<  caz=(list card)  b  (http-post-v1 ~[['x-api-key' key]] body)
+  =/  f=flag:n  (nb-flag our.bowl 'Garbage' 1)
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?~  api-key.s0  |+['no api-key after init']~
+  =/  st=(unit @ud)  (http-status caz)
+  ?.  =(st `200)
+    |+~[(crip "expected 200 for garbage requestId, got {<st>}")]
+  ?.  (~(has by books.s) f)
+    |+['notebook not created from garbage-requestId POST']~
+  &+[~ s2]
+::
+::  ====  test-rest-create-notebook  ====
+::  POST /notes/~/v1/notebooks {title} → 200 + notebook created.
+++  test-rest-create-notebook
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  sv0=vase  b  get-save
+  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
+  ;<  caz=(list card)  b
+    (http-req-v1 %'POST' ~[['x-api-key' key]] '/notes/~/v1/notebooks' '{"title":"RestNB"}')
+  =/  f=flag:n  (nb-flag our.bowl 'RestNB' 1)
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?~  api-key.s0  |+['no api-key']~
+  ?.  =((http-status caz) `200)
+    |+~[(crip "create-notebook POST not 200: {<(http-status caz)>}")]
+  ?.  (~(has by books.s) f)
+    |+['notebook not created via REST POST']~
+  &+[~ s2]
+::
+::  ====  test-rest-create-update-delete-note  ====
+::  Full note lifecycle through the first-class endpoints (state-asserted;
+::  the held-open HTTP response doesn't finalize in test-agent since fact
+::  delivery isn't simulated, but the drained self-poke mutates state).
+++  test-rest-create-update-delete-note
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  sv0=vase  b  get-save
+  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
+  =/  hdr=(list [@t @t])  ~[['x-api-key' key]]
+  ::  notebook id=1, root folder id=2
+  ;<  *  b  (poke-a [%create-notebook 'NoteLife'])
+  =/  f=flag:n  (nb-flag our.bowl 'NoteLife' 1)
+  =/  base=@t  (crip "/notes/~/v1/notebooks/{<`@p`our.bowl>}/{(trip name.f)}")
+  ::  create note (folder 2) → note id 3
+  ;<  *  b  (http-req-v1 %'POST' hdr (cat 3 base '/notes') '{"folder":2,"title":"L","body":"v0"}')
+  ;<  svc=vase  b  get-save
+  =/  sc=state-13:n  !<(state-13:n svc)
+  =/  entry-c  (~(get by books.sc) f)
+  ::  update body via PUT (no expectedRevision)
+  ;<  *  b  (http-req-v1 %'PUT' hdr (cat 3 base '/notes/3') '{"body":"v1"}')
+  ;<  svu=vase  b  get-save
+  =/  su=state-13:n  !<(state-13:n svu)
+  ::  delete via DELETE
+  ;<  *  b  (http-req-v1 %'DELETE' hdr (cat 3 base '/notes/3') '')
+  ;<  svd=vase  b  get-save
+  =/  sd=state-13:n  !<(state-13:n svd)
+  |=  s2=state
+  ?~  api-key.s0  |+['no api-key']~
+  ?~  entry-c  |+['notebook gone after create-note']~
+  ?.  (~(has by notes.notebook-state.u.entry-c) 3)
+    |+['note not created via REST POST']~
+  =/  entry-u  (~(get by books.su) f)
+  ?~  entry-u  |+['notebook gone after PUT']~
+  ?~  note-u=(~(get by notes.notebook-state.u.entry-u) 3)
+    |+['note gone after PUT']~
+  ?.  =(body-md.u.note-u 'v1')
+    |+~[(crip "PUT didn't update body: {<body-md.u.note-u>}")]
+  =/  entry-d  (~(get by books.sd) f)
+  ?~  entry-d  |+['notebook gone after DELETE']~
+  ?:  (~(has by notes.notebook-state.u.entry-d) 3)
+    |+['note still present after DELETE']~
+  &+[~ s2]
+::
+::  ====  test-rest-put-folder-rename-and-move  ====
+::  PUT /folders/{id} with both name and parent applies both changes
+::  in one update. Setup: notebook 1, root 2; create sub-A=3 under root,
+::  sub-B=4 under root; PUT folder 3 with new name + new parent=4. Expect
+::  folder 3 to be renamed and re-parented under 4.
+++  test-rest-put-folder-rename-and-move
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  *  b  (poke-a [%create-notebook 'PutFld'])
+  =/  f=flag:n  (nb-flag our.bowl 'PutFld' 1)
+  ;<  *  b  (poke-a [%notebook f [%create-folder `2 'A']])
+  ;<  *  b  (poke-a [%notebook f [%create-folder `2 'B']])
+  ;<  sv0=vase  b  get-save
+  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
+  =/  hdr=(list [@t @t])  ~[['x-api-key' key]]
+  =/  base=@t  (crip "/notes/~/v1/notebooks/{<`@p`our.bowl>}/{(trip name.f)}")
+  ;<  *  b
+    (http-req-v1 %'PUT' hdr (cat 3 base '/folders/3') '{"folderName":"A2","parent":4}')
+  ;<  svu=vase  b  get-save
+  =/  su=state-13:n  !<(state-13:n svu)
+  |=  s2=state
+  ?~  api-key.s0  |+['no api-key']~
+  ?~  entry=(~(get by books.su) f)  |+['notebook gone']~
+  ?~  fld=(~(get by folders.notebook-state.u.entry) 3)
+    |+['folder 3 gone']~
+  ?.  =('A2' name.u.fld)
+    |+~[(crip "PUT didn't rename: {<name.u.fld>}")]
+  ?.  =(`4 parent-folder-id.u.fld)
+    |+~[(crip "PUT didn't move: parent={<parent-folder-id.u.fld>}")]
+  &+[~ s2]
+::
+::  ====  test-rest-put-note-rename-and-move  ====
+::  PUT /notes/{id} with title + folder (no body) renames and moves the
+::  note in one atomic edit. Setup: notebook 1, root 2, sub=3 under root,
+::  note=4 under root. PUT note 4 → new title + parent 3.
+++  test-rest-put-note-rename-and-move
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  *  b  (poke-a [%create-notebook 'PutNote'])
+  =/  f=flag:n  (nb-flag our.bowl 'PutNote' 1)
+  ;<  *  b  (poke-a [%notebook f [%create-folder `2 'sub']])
+  ;<  *  b  (poke-a [%notebook f [%create-note 2 'old' 'b']])
+  ;<  sv0=vase  b  get-save
+  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
+  =/  hdr=(list [@t @t])  ~[['x-api-key' key]]
+  =/  base=@t  (crip "/notes/~/v1/notebooks/{<`@p`our.bowl>}/{(trip name.f)}")
+  ;<  *  b
+    (http-req-v1 %'PUT' hdr (cat 3 base '/notes/4') '{"title":"new","folder":3}')
+  ;<  svu=vase  b  get-save
+  =/  su=state-13:n  !<(state-13:n svu)
+  |=  s2=state
+  ?~  api-key.s0  |+['no api-key']~
+  ?~  entry=(~(get by books.su) f)  |+['notebook gone']~
+  ?~  note=(~(get by notes.notebook-state.u.entry) 4)
+    |+['note 4 gone']~
+  ?.  =('new' title.u.note)
+    |+~[(crip "PUT didn't rename: {<title.u.note>}")]
+  ?.  =(3 folder-id.u.note)
+    |+~[(crip "PUT didn't move: folder={<folder-id.u.note>}")]
+  &+[~ s2]
+::
+::  ====  test-rest-delete-folder-recursive  ====
+::  DELETE /folders/{id}?recursive=true removes folder + descendants.
+::  Setup: A=3 under root, leaf=4 under A. DELETE A with ?recursive=true.
+++  test-rest-delete-folder-recursive
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  *  b  (poke-a [%create-notebook 'DelFld'])
+  =/  f=flag:n  (nb-flag our.bowl 'DelFld' 1)
+  ;<  *  b  (poke-a [%notebook f [%create-folder `2 'A']])
+  ;<  *  b  (poke-a [%notebook f [%create-folder `3 'leaf']])
+  ;<  sv0=vase  b  get-save
+  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
+  =/  hdr=(list [@t @t])  ~[['x-api-key' key]]
+  =/  base=@t  (crip "/notes/~/v1/notebooks/{<`@p`our.bowl>}/{(trip name.f)}")
+  ;<  *  b
+    (http-req-v1 %'DELETE' hdr (cat 3 base '/folders/3?recursive=true') '')
+  ;<  svd=vase  b  get-save
+  =/  sd=state-13:n  !<(state-13:n svd)
+  |=  s2=state
+  ?~  entry=(~(get by books.sd) f)  |+['notebook gone']~
+  ?:  (~(has by folders.notebook-state.u.entry) 3)
+    |+['folder 3 still present after recursive DELETE']~
+  ?:  (~(has by folders.notebook-state.u.entry) 4)
+    |+['leaf folder still present after recursive DELETE']~
+  &+[~ s2]
+::
+::  ====  test-v1-regenerate-returns-key  ====
+::  %regenerate-api-key must finalize with the new key in an %api-key body.
+++  test-v1-regenerate-returns-key
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  =/  rid=request-id:v1:n  0v5.aaaaa
+  ;<  *  b  (poke-a-v1 [rid [%regenerate-api-key ~]])
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?~  req=(~(get by requests.s) rid)
+    |+['expected requests entry']~
+  ?~  result.u.req
+    |+['expected result']~
+  ?.  ?=(%api-key -.u.result.u.req)
+    |+~[(crip "expected %api-key result, got {<-.u.result.u.req>}")]
+  ?~  key.u.result.u.req
+    |+['expected non-null key in response']~
+  ?.  =(key.u.result.u.req api-key.s)
+    |+['response key does not match stored key']~
+  &+[~ s2]
+::
+::  ====  test-v1-read-notebooks  ====
+::  GET /notes/~/v1/notebooks with a matching X-Api-Key returns 200 +
+::  a JSON array of notebook summaries.
+++  test-v1-read-notebooks
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  *  b  (poke-a [%create-notebook 'Readable'])
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  =/  key=@t  ?~(api-key.s '' u.api-key.s)
+  ;<  caz=(list card)  b
+    (http-get-v1 ~[['x-api-key' key]] '/notes/~/v1/notebooks')
+  |=  s2=state
+  ?~  api-key.s
+    |+['no api-key after init']~
+  =/  st=(unit @ud)  (http-status caz)
+  ?.  =(st `200)
+    |+~[(crip "expected 200 from notebooks read, got {<st>}")]
+  &+[~ s2]
+::
+::  ====  test-v1-read-requires-auth  ====
+::  GET read endpoints reject unauthenticated callers.
+++  test-v1-read-requires-auth
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  caz=(list card)  b  (http-get-v1 ~ '/notes/~/v1/notebooks')
+  |=  s=state
+  =/  st=(unit @ud)  (http-status caz)
+  ?.  =(st `401)
+    |+~[(crip "expected 401 from unauthenticated read, got {<st>}")]
+  &+[~ s]
+::
+::  +ex-get-200: GET a v1 read url with the given headers and assert 200.
+::  A 200 confirms routing matched, auth passed, and no-read-json returned
+::  data (a 404 would mean the path shape wasn't recognized).
+++  ex-get-200
+  |=  [hdrs=(list [@t @t]) url=@t]
+  =/  m  (mare ,~)
+  ^-  form:m
+  ;<  caz=(list card)  bind:m  (http-get-v1 hdrs url)
+  |=  s=state
+  ?.  =((http-status caz) `200)
+    |+~[(crip "GET {(trip url)} expected 200, got {<(http-status caz)>}")]
+  &+[~ s]
+::
+::  ====  test-v1-read-all-endpoints  ====
+::  Exercises every GET read shape (+ POST folders write) in one go. A
+::  notebook (id 1, root folder 2), a note (id 3) and a sub-folder (id 4)
+::  are set up, then each read endpoint must 200.
+++  test-v1-read-all-endpoints
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  *  b  (poke-a [%create-notebook 'AllReads'])
+  =/  f=flag:n  (nb-flag our.bowl 'AllReads' 1)
+  ;<  sv0=vase  b  get-save
+  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
+  =/  hdr=(list [@t @t])  ~[['x-api-key' key]]
+  =/  base=@t  (crip "/notes/~/v1/notebooks/{<`@p`our.bowl>}/{(trip name.f)}")
+  ::  POST note (folder 2 = root) → id 3
+  ;<  *  b  (http-req-v1 %'POST' hdr (cat 3 base '/notes') '{"folder":2,"title":"N","body":"b"}')
+  ::  POST sub-folder (parent 2) → id 4  [covers POST .../folders]
+  ;<  *  b  (http-req-v1 %'POST' hdr (cat 3 base '/folders') '{"parent":2,"folderName":"sub"}')
+  ;<  svw=vase  b  get-save
+  =/  sw=state-13:n  !<(state-13:n svw)
+  ::  GET every read shape
+  ;<  ~  b  (ex-get-200 hdr '/notes/~/v1/notebooks')
+  ;<  ~  b  (ex-get-200 hdr base)
+  ;<  ~  b  (ex-get-200 hdr (cat 3 base '/folders'))
+  ;<  ~  b  (ex-get-200 hdr (cat 3 base '/folders/2'))
+  ;<  ~  b  (ex-get-200 hdr (cat 3 base '/notes'))
+  ;<  ~  b  (ex-get-200 hdr (cat 3 base '/notes/3'))
+  ;<  ~  b  (ex-get-200 hdr (cat 3 base '/notes/3/history'))
+  ;<  ~  b  (ex-get-200 hdr (cat 3 base '/members'))
+  ;<  ~  b  (ex-get-200 hdr '/notes/~/v1/invites')
+  |=  s2=state
+  ?~  api-key.s0  |+['no api-key']~
+  ?~  entry=(~(get by books.sw) f)  |+['notebook gone']~
+  ::  POST .../folders created folder id 4
+  ?.  (~(has by folders.notebook-state.u.entry) 4)
+    |+['POST .../folders did not create the sub-folder']~
+  &+[~ s2]
+::
+::  ====  test-rest-write-requires-auth  ====
+::  Write endpoints reject unauthenticated callers — POST /notebooks with
+::  no cookie/key → 401 and no notebook created.
+++  test-rest-write-requires-auth
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  caz=(list card)  b
+    (http-req-v1 %'POST' ~ '/notes/~/v1/notebooks' '{"title":"NoAuthNB"}')
+  =/  f=flag:n  (nb-flag our.bowl 'NoAuthNB' 1)
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?.  =((http-status caz) `401)
+    |+~[(crip "expected 401 for unauth write, got {<(http-status caz)>}")]
+  ?:  (~(has by books.s) f)
+    |+['unauthorized write created a notebook']~
+  &+[~ s2]
+::
+::  ====  test-v1-notebook-action-emits-cards  ====
+::  Notebook-scoped v1 action routes through no-action-v1: must emit a host
+::  %watch on the per-request path, a %poke with notes-command-1, and a behn
+::  %wait for the per-request timeout.
+++  test-v1-notebook-action-emits-cards
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  *  b  (poke-a [%create-notebook 'V1 Cards'])
+  =/  f=flag:n  (nb-flag our.bowl 'V1 Cards' 1)
+  =/  rid=request-id:v1:n  0v2
+  ;<  caz=(list card)  b
+    (poke-a-v1 [rid [%notebook f [%create-note 2 'V1 Note' 'body']]])
+  |=  s=state
+  =/  exp-watch-path=path
+    :+  %v1  %notes
+    /(scot %p ship.f)/[name.f]/request/(scot %p our.bowl)/(scot %uv rid)
+  =/  exp-wait-wire=wire
+    /notes/req/(scot %p ship.f)/[name.f]/(scot %uv rid)/wake
+  ?.  (has-watch-on-path caz exp-watch-path)
+    |+~[(crip "v1: missing watch card on {<exp-watch-path>}")]
+  ?.  (has-poke-mark caz %notes-command-1)
+    |+['v1: missing %notes-command-1 poke card']~
+  ?.  (has-wait-on-wire caz exp-wait-wire)
+    |+~[(crip "v1: missing behn wait on {<exp-wait-wire>}")]
+  &+[~ s]
+::
+::  ====  test-v1-command-emits-response-update-fact  ====
+::  Host-side: poke notes-command-1 from owner; expect se-emit-final-response
+::  to give a %fact with mark notes-response-update-1. (Path scoping by src
+::  is covered in app code, not asserted here — keeps the test resilient to
+::  internal path tweaks.)
+++  test-v1-command-emits-response-update-fact
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  *  b  (poke-a [%create-notebook 'V1 Cmd'])
+  =/  f=flag:n  (nb-flag our.bowl 'V1 Cmd' 1)
+  =/  rid=request-id:v1:n  0v3
+  ;<  caz=(list card)  b
+    (poke-c-v1 [rid [%notebook f [%create-note 2 'V1 Note' 'b']]])
+  |=  s=state
+  ?.  (has-fact-mark caz %notes-response-update-1)
+    |+['v1: missing notes-response-update-1 fact after command']~
+  &+[~ s]
+::
+::  ====  test-v1-action-json-decode  ====
+::  Parse a JSON v1 action and assert request-id + nested a-notes decode.
+++  test-v1-action-json-decode
+  %-  eval-mare
+  =/  m  (mare ,~)
+  ^-  form:m
+  |=  s=state
+  =/  src=@t
+    '{"requestId":"0v1","action":{"type":"create-notebook","title":"From JSON"}}'
+  =/  jon=(unit json)  (de:json:html src)
+  ?~  jon
+    |+['failed to parse json source']~
+  =/  act=action:v1:n  (action:v1:dejs:notes-json u.jon)
+  ?.  =(request-id.act 0v1)
+    |+~[(crip "expected request-id 0v1, got {<request-id.act>}")]
+  ?.  ?=(%create-notebook -.a-notes.act)
+    |+['expected %create-notebook a-notes tag']~
+  ?.  =(title.a-notes.act 'From JSON')
+    |+['expected title preserved through v1 json decode']~
+  &+[~ s]
+::
+::  ====  X-Api-Key auth tests  ============================================
+::
+::  ====  test-api-key-minted-on-init  ====
+::  Fresh install should populate api-key so the bypass is usable.
+++  test-api-key-minted-on-init
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?~  api-key.s
+    |+['expected api-key generated on init']~
+  &+[~ s2]
+::
+::  ====  test-api-key-regenerate-changes-value  ====
+::  %regenerate-api-key should replace the stored key with a fresh one.
+++  test-api-key-regenerate-changes-value
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  sv1=vase  b  get-save
+  =/  s1=state-13:n  !<(state-13:n sv1)
+  =/  old-key=(unit @t)  api-key.s1
+  ::  bump eny so the new key differs deterministically
+  ;<  ~  b  (jab-bowl |=(=bowl bowl(eny ^~((shaz 'regen-test')))))
+  ;<  *  b  (poke-a-v1 [0v1.aaaaa [%regenerate-api-key ~]])
+  ;<  sv2=vase  b  get-save
+  =/  s2=state-13:n  !<(state-13:n sv2)
+  |=  s3=state
+  ?~  old-key
+    |+['no api-key after init']~
+  ?~  api-key.s2
+    |+['api-key cleared instead of regenerated']~
+  ?:  =(u.old-key u.api-key.s2)
+    |+['api-key unchanged after regenerate']~
+  &+[~ s3]
+::
+::  ====  test-api-key-clear-disables-bypass  ====
+++  test-api-key-clear-disables-bypass
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  *  b  (poke-a-v1 [0v1.aaaaa [%clear-api-key ~]])
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?^  api-key.s
+    |+['expected api-key cleared']~
+  &+[~ s2]
+::
+::  ====  test-x-api-key-bypasses-cookie  ====
+::  POST without eyre auth but with the matching X-Api-Key creates the
+::  notebook end-to-end.
+++  test-x-api-key-bypasses-cookie
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  ;<  sv1=vase  b  get-save
+  =/  s1=state-13:n  !<(state-13:n sv1)
+  =/  maybe-key=(unit @t)  api-key.s1
+  =/  key=@t  ?~(maybe-key '' u.maybe-key)
+  =/  body=@t  '{"requestId":"0v9.aaaaa","action":{"type":"create-notebook","title":"VKey"}}'
+  ;<  caz=(list card)  b  (http-post-v1 ~[['x-api-key' key]] body)
+  =/  f=flag:n  (nb-flag our.bowl 'VKey' 1)
+  ;<  sv2=vase  b  get-save
+  =/  s2=state-13:n  !<(state-13:n sv2)
+  |=  s3=state
+  ?~  maybe-key
+    |+['no api-key after init']~
+  ?~  caz
+    |+['no cards emitted from http-post']~
+  ?.  (~(has by books.s2) f)
+    |+['expected notebook created via X-Api-Key auth']~
+  &+[~ s3]
+::
+::  ====  test-x-api-key-wrong-rejects  ====
+::  POST with a non-matching X-Api-Key must NOT apply the action. We
+::  rely on state inspection rather than http-response status extraction
+::  since the agent emits the 401 as %give cards and the assert is the
+::  same either way (action didn't take).
+++  test-x-api-key-wrong-rejects
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  =/  body=@t  '{"requestId":"0v9.bbbbb","action":{"type":"create-notebook","title":"WrongKey"}}'
+  ;<  *  b  (http-post-v1 ~[['x-api-key' 'definitely-not-the-key']] body)
+  =/  f=flag:n  (nb-flag our.bowl 'WrongKey' 1)
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?:  (~(has by books.s) f)
+    |+['unauthorized request created a notebook']~
+  &+[~ s2]
+::
+::  ====  test-v1-get-request-requires-auth  ====
+::  GET /notes/~/v1/request/<uv> must NOT return a request's body to an
+::  unauthenticated caller. The request-id is not a capability.
+++  test-v1-get-request-requires-auth
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ::  pre-register a request directly via poke so we know the rid
+  ;<  *  b  (poke-a-v1 [0v1.deadc.0ffee [%create-notebook 'PriorPost']])
+  ;<  caz=(list card)  b
+    (http-get-v1 ~ '/notes/~/v1/request/0v1.deadc.0ffee')
+  |=  s=state
+  =/  st=(unit @ud)  (http-status caz)
+  ?~  st
+    |+['expected http response header card']~
+  ?:  =(u.st 200)
+    |+~[(crip "auth bypassed: 200 to unauthenticated GET /v1/request/<uv>")]
+  ?.  =(u.st 401)
+    |+~[(crip "unexpected GET status {<u.st>}, want 401")]
+  &+[~ s]
+::
+::  ====  test-v1-get-request-honors-api-key  ====
+::  GET with a matching X-Api-Key must succeed (200) — sanity check
+::  that the auth gate isn't blocking the legitimate poll path.
+++  test-v1-get-request-honors-api-key
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  *  b  (poke-a-v1 [0v2.aaaaa.bbbbb [%create-notebook 'KeyPoll']])
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  =/  maybe-key=(unit @t)  api-key.s
+  =/  key=@t  ?~(maybe-key '' u.maybe-key)
+  ;<  caz=(list card)  b
+    (http-get-v1 ~[['x-api-key' key]] '/notes/~/v1/request/0v2.aaaaa.bbbbb')
+  |=  s2=state
+  ?~  maybe-key
+    |+['no api-key after init']~
+  =/  st=(unit @ud)  (http-status caz)
+  ?~  st
+    |+['expected http response header card']~
+  ?.  =(u.st 200)
+    |+~[(crip "expected 200 with valid api-key, got {<u.st>}")]
+  &+[~ s2]
+::
+::  ====  test-failed-join-cleans-up-placeholder  ====
+::  Pre-join writes a placeholder to books before sending the v1 request.
+::  If the host nacks the poke, the placeholder must be rolled back so
+::  the user isn't stuck with a ghost notebook they can't re-join.
+::
+::  We extract the actual poke-wire from the cards emitted by the join
+::  (rather than reconstructing it from rid synthesis details) so the
+::  test stays aligned with the agent if the wire encoding ever changes.
+++  test-failed-join-cleans-up-placeholder
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  =/  remote-flag=flag:n  [~bus %ghost-test]
+  ;<  caz=(list card)  b  (poke-a [%join remote-flag])
+  ;<  sv1=vase  b  get-save
+  =/  s1=state-13:n  !<(state-13:n sv1)
+  =/  pre-has=?  (~(has by books.s1) remote-flag)
+  =/  poke-wire=(unit wire)  (find-poke-wire caz)
+  ::  Crash the test if no poke wire was emitted — that itself would be
+  ::  a regression in the cross-ship send path.
+  ~|  %no-poke-wire-emitted-by-join
+  ?>  ?=(^ poke-wire)
+  =/  nack-sign=sign:agent:gall
+    [%poke-ack `~[leaf+"host rejected"]]
+  ;<  *  b  (do-agent u.poke-wire [~bus %notes] nack-sign)
+  ;<  sv2=vase  b  get-save
+  =/  s2=state-13:n  !<(state-13:n sv2)
+  |=  s3=state
+  ?.  pre-has
+    |+['placeholder missing after join initiated']~
+  ?:  (~(has by books.s2) remote-flag)
+    |+['placeholder not cleaned up after failed join']~
+  &+[~ s3]
 ::
 ::  ====  JSON encoder tests  ===============================================
 ::
