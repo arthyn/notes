@@ -2491,10 +2491,39 @@ async function connectMcp() {
   const baseUrl = window.location.origin;
   try {
     await pokeAction({ type: "register-mcp", baseUrl });
-    alert(`Connected %notes to %mcp-proxy at ${baseUrl}.\n\nNotes tools are now available to any MCP client pointed at this ship.`);
+    const status = await verifyMcpRegistration();
+    if (status.ok) {
+      alert(`Notes is now connected to MCP-proxy at ${baseUrl}.\n\nTools are live and discoverable by any MCP client pointed at this ship.`);
+    } else if (status.entry) {
+      alert(`Registered with MCP-proxy at ${baseUrl}, but the OpenAPI spec hasn't been cached yet. Try again in a moment, or check %mcp-proxy in dojo.`);
+    } else {
+      alert(`Registration poke fired, but MCP-proxy's /apps/mcp/api/servers didn't list %notes back. The proxy may have nacked the registration — check dojo.`);
+    }
   } catch (e) {
     alert(`Connect to MCP failed: ${e?.message || e}`);
   }
+}
+
+// Poll mcp-proxy's /apps/mcp/api/servers endpoint to confirm the
+// registration landed. After a successful %add-server the entry shows
+// up immediately, but `hasCachedSpec` only flips true once the proxy's
+// async Iris fetch of /notes/openapi.json completes — so we poll for a
+// few seconds before deciding.
+async function verifyMcpRegistration() {
+  for (let i = 0; i < 6; i++) {
+    if (i > 0) await new Promise(r => setTimeout(r, 500));
+    try {
+      const r = await fetch(`${BASE_URL}/apps/mcp/api/servers`, { credentials: "include" });
+      if (!r.ok) continue;
+      const data = await r.json();
+      const entry = (data?.servers || []).find(s => s.id === "notes");
+      if (entry?.hasCachedSpec) return { ok: true, entry };
+      if (i === 5) return { ok: false, entry: entry || null };
+    } catch (_) {
+      // network blip — try again
+    }
+  }
+  return { ok: false, entry: null };
 }
 
 // SSE subscription on /v0/inbox/stream — receives invite-received and
