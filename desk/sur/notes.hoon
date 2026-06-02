@@ -110,6 +110,10 @@
       ::  it (disabling the X-Api-Key bypass).
       [%regenerate-api-key ~]
       [%clear-api-key ~]
+      ::  %register-mcp: register %notes as an openapi upstream with the
+      ::  local %mcp-proxy. base-url defaults to 'http://localhost:8080'
+      ::  if ~. The api-key is minted on demand if missing. Local-only.
+      [%register-mcp base-url=(unit @t)]
   ==
 ::
 ::  $a-notebook: actions scoped to a specific notebook.

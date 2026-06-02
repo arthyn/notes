@@ -1536,6 +1536,7 @@
       <button class="sidebar-action" id="import-files-btn" onclick="triggerImport(false)"><svg class="icon"><use href="#i-download"/></svg> Import files</button>
       <button class="sidebar-action" id="import-folder-btn" onclick="triggerImport(true)"><svg class="icon"><use href="#i-folder-down"/></svg> Import folder</button>
       <button class="sidebar-action" onclick="openModal(&quot;desktop-sync&quot;)"><svg class="icon"><use href="#i-sync"/></svg> Desktop sync app</button>
+      <button class="sidebar-action" id="connect-mcp-btn" onclick="connectMcp()" style="display:none" title="Register %notes with the local %mcp-proxy so MCP clients can call its tools"><svg class="icon"><use href="#i-bolt"/></svg> Connect to MCP</button>
     </div>
     <div class="sidebar-brand">
       <svg class="icon brand-icon"><use href="#i-notebook"/></svg>
@@ -1856,7 +1857,7 @@ async function connect() {
 
   // loadNotebooks, loadPublished, loadInvites are independent scries — fire
   // them in parallel to shave roundtrips off the bootstrap.
-  await Promise.all([loadNotebooks(), loadPublished(), loadInvites()]);
+  await Promise.all([loadNotebooks(), loadPublished(), loadInvites(), checkMcpProxy()]);
   // Await subscribeInbox so the SSE listener (started inside it after the
   // first PUT brings the channel into existence) is live before the user
   // can issue any pokeAction. Otherwise pokeAction's await for poke-ack
@@ -2460,6 +2461,31 @@ async function loadInvites() {
     pendingInvites[flag] = { from: item.from, sentAt: item.sentAt, title: item.title || "" };
   });
   renderInvites();
+}
+
+// MCP-proxy detection. Hidden behind a feature flag in the sidebar
+// action cluster — the button only renders if %mcp-proxy is currently a
+// running agent on this ship. Scry result: {installed: bool}.
+let mcpProxyInstalled = false;
+async function checkMcpProxy() {
+  const data = await scry("/v0/mcp-status");
+  mcpProxyInstalled = !!(data && data.installed);
+  const btn = document.getElementById("connect-mcp-btn");
+  if (btn) btn.style.display = mcpProxyInstalled ? "" : "none";
+}
+
+// Registers %notes with the local %mcp-proxy as an openapi upstream so
+// MCP-aware bots can call its tools. baseUrl is auto-derived from the
+// browser's origin so a user loading the UI from `https://my.ship:8443`
+// gets that same scheme/host wired into the proxy registration.
+async function connectMcp() {
+  const baseUrl = window.location.origin;
+  try {
+    await pokeAction({ type: "register-mcp", baseUrl });
+    alert(`Connected %notes to %mcp-proxy at ${baseUrl}.\n\nNotes tools are now available to any MCP client pointed at this ship.`);
+  } catch (e) {
+    alert(`Connect to MCP failed: ${e?.message || e}`);
+  }
 }
 
 // SSE subscription on /v0/inbox/stream — receives invite-received and
