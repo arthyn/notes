@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'register-mcp-helper-poke'
+++  dummy  'register-mcp-poke-ack-wires'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -820,6 +820,16 @@
     ?.  (~(has by books) flag)  cor
     =/  rid=request-id:v1:n  (slav %uv id.pole)
     no-abet:(no-agent-req-poke:(no-abed:no-core flag) rid sign)
+  ::
+  ::  /mcp/{register,refresh} — pokes to %mcp-proxy from
+  ::  +register-with-mcp-proxy. Fire-and-forget: log nacks so the user
+  ::  knows registration didn't take, ignore success acks.
+      [%mcp ?(%register %refresh) ~]
+    ?+  -.sign  cor
+        %poke-ack
+      ?~  p.sign  cor
+      ((slog leaf+"mcp-proxy register/refresh failed" u.p.sign) cor)
+    ==
   ==
 ::
 ++  arvo
