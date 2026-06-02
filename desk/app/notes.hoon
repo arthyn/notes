@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'mcp-button-shows-connected-state'
+++  dummy  'mcp-server-url-is-eyre-root'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -1262,13 +1262,17 @@
   =/  base=@t  (fall base-url 'http://localhost:8080')
   =?  api-key  ?=(~ api-key)  `(scot %uv eny.bowl)
   =/  key=@t  ?~(api-key '' u.api-key)
-  =/  notes-url=@t     (cat 3 base '/notes')
-  =/  schema-url=@t    (cat 3 base '/notes/openapi.json')
+  ::  url is the eyre ORIGIN, not /notes. mcp-proxy concatenates url +
+  ::  the spec's path template (e.g. '/notes/~/v1/notebooks'); appending
+  ::  /notes here would double the segment and the request would fall
+  ::  through to the generic /notes/* catch-all that serves the UI.
+  ::  schema-url IS a real path on disk so it keeps the /notes prefix.
+  =/  schema-url=@t  (cat 3 base '/notes/openapi.json')
   =/  add=action:mcp-proxy
     :+  %add-server  %notes
     ^-  mcp-server:mcp-proxy
     :*  name='Notes'
-        url=notes-url
+        url=base
         headers=~[[key='x-api-key' value=key]]
         enabled=&
         oauth-provider=~
