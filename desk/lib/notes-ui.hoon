@@ -250,6 +250,8 @@
   .sidebar-action:hover { background: var(--surface2); color: var(--text); }
   .sidebar-action[disabled] { opacity: 0.4; cursor: default; }
   .sidebar-action[disabled]:hover { background: none; color: var(--text-muted); }
+  .sidebar-action.connected { color: var(--success); }
+  .sidebar-action.connected:hover { background: var(--surface2); color: var(--success); }
   .sidebar-version {
     font-family: var(--mono);
     font-size: 11px;
@@ -1545,7 +1547,7 @@
       <button class="sidebar-action" id="import-files-btn" onclick="triggerImport(false)"><svg class="icon"><use href="#i-download"/></svg> Import files</button>
       <button class="sidebar-action" id="import-folder-btn" onclick="triggerImport(true)"><svg class="icon"><use href="#i-folder-down"/></svg> Import folder</button>
       <button class="sidebar-action" onclick="openModal(&quot;desktop-sync&quot;)"><svg class="icon"><use href="#i-sync"/></svg> Desktop sync app</button>
-      <button class="sidebar-action" id="connect-mcp-btn" onclick="connectMcp()" style="display:none" title="Register %notes with the local %mcp-proxy so MCP clients can call its tools"><svg class="icon"><use href="#i-bolt"/></svg> Connect to MCP</button>
+      <button class="sidebar-action" id="connect-mcp-btn" onclick="connectMcp()" style="display:none" title="Register %notes with the local %mcp-proxy so MCP clients can call its tools"><svg class="icon"><use href="#i-bolt"/></svg> <span id="connect-mcp-label">Connect to MCP</span></button>
     </div>
     <div class="sidebar-brand">
       <svg class="icon brand-icon"><use href="#i-notebook"/></svg>
@@ -2472,15 +2474,44 @@ async function loadInvites() {
   renderInvites();
 }
 
-// MCP-proxy detection. Hidden behind a feature flag in the sidebar
-// action cluster — the button only renders if %mcp-proxy is currently a
-// running agent on this ship. Scry result: {installed: bool}.
+// MCP-proxy detection. The "Connect to MCP" sidebar button only renders
+// when %mcp-proxy is running on this ship. On bootstrap we also do a
+// one-shot check of /apps/mcp/api/servers — if %notes is already
+// registered with a cached spec, the button switches to a muted-green
+// "MCP connected" so the user sees status at a glance instead of having
+// to click to find out. (Clicking still works to re-register.)
 let mcpProxyInstalled = false;
 async function checkMcpProxy() {
   const data = await scry("/v0/mcp-status");
   mcpProxyInstalled = !!(data && data.installed);
   const btn = document.getElementById("connect-mcp-btn");
-  if (btn) btn.style.display = mcpProxyInstalled ? "" : "none";
+  if (!btn) return;
+  if (!mcpProxyInstalled) {
+    btn.style.display = "none";
+    return;
+  }
+  btn.style.display = "";
+  // One-shot probe (no polling): if already registered, show connected
+  // state immediately. If not, leave the default "Connect to MCP" label.
+  const status = await verifyMcpRegistration(1);
+  setMcpButtonConnected(status.ok);
+}
+
+// Flip the sidebar button between "Connect to MCP" and the muted-green
+// "MCP connected" state. Idempotent; safe to call multiple times.
+function setMcpButtonConnected(isConnected) {
+  const btn = document.getElementById("connect-mcp-btn");
+  const label = document.getElementById("connect-mcp-label");
+  if (!btn || !label) return;
+  if (isConnected) {
+    btn.classList.add("connected");
+    label.textContent = "MCP connected";
+    btn.title = "Notes is registered with %mcp-proxy. Click to re-register.";
+  } else {
+    btn.classList.remove("connected");
+    label.textContent = "Connect to MCP";
+    btn.title = "Register %notes with the local %mcp-proxy so MCP clients can call its tools";
+  }
 }
 
 // Registers %notes with the local %mcp-proxy as an openapi upstream so
@@ -2492,6 +2523,7 @@ async function connectMcp() {
   try {
     await pokeAction({ type: "register-mcp", baseUrl });
     const status = await verifyMcpRegistration();
+    setMcpButtonConnected(status.ok);
     if (status.ok) {
       alert(`Notes is now connected to MCP-proxy at ${baseUrl}.\n\nTools are live and discoverable by any MCP client pointed at this ship.`);
     } else if (status.entry) {
@@ -2508,9 +2540,10 @@ async function connectMcp() {
 // registration landed. After a successful %add-server the entry shows
 // up immediately, but `hasCachedSpec` only flips true once the proxy's
 // async Iris fetch of /notes/openapi.json completes — so we poll for a
-// few seconds before deciding.
-async function verifyMcpRegistration() {
-  for (let i = 0; i < 6; i++) {
+// few seconds before deciding. Pass maxTries=1 for a quiet on-load
+// probe; default 6 (≈ 2.5s of retries) for the click flow.
+async function verifyMcpRegistration(maxTries = 6) {
+  for (let i = 0; i < maxTries; i++) {
     if (i > 0) await new Promise(r => setTimeout(r, 500));
     try {
       const r = await fetch(`${BASE_URL}/apps/mcp/api/servers`, { credentials: "include" });
@@ -2518,7 +2551,7 @@ async function verifyMcpRegistration() {
       const data = await r.json();
       const entry = (data?.servers || []).find(s => s.id === "notes");
       if (entry?.hasCachedSpec) return { ok: true, entry };
-      if (i === 5) return { ok: false, entry: entry || null };
+      if (i === maxTries - 1) return { ok: false, entry: entry || null };
     } catch (_) {
       // network blip — try again
     }
