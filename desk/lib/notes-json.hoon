@@ -633,6 +633,15 @@
       :-  %decline-invite
       =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) jon)
       [-.raw `@tas`+.raw]
+        %'register-mcp'
+      =/  bu-j=(unit json)  (~(get by p.jon) 'baseUrl')
+      =/  bu=(unit @t)
+        ?~  bu-j  ~
+        ?.  ?=([%s *] u.bu-j)  ~
+        `p.u.bu-j
+      [%register-mcp bu]
+        %'regenerate-api-key'  [%regenerate-api-key ~]
+        %'clear-api-key'       [%clear-api-key ~]
         %'notebook'
       :-  %notebook
       =/  flag-json=(unit json)  (~(get by p.jon) 'flag')

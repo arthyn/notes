@@ -2175,6 +2175,28 @@
     |+['api-key unchanged after regenerate']~
   &+[~ s3]
 ::
+::  ====  test-register-mcp-emits-cards  ====
+::  %register-mcp emits two pokes at [%mcp-proxy our] carrying the
+::  mcp-proxy-action mark: first %add-server, then %refresh-spec.
+::  Mints the api-key on the way through if missing.
+++  test-register-mcp-emits-cards
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  *  b  (poke-a-v1 [0v2.bbbbb [%clear-api-key ~]])
+  ;<  caz=(list card)  b
+    (poke-a-v1 [0v3.ccccc [%register-mcp `'http://localhost:8080']])
+  ;<  sv=vase  b  get-save
+  =/  s=state-13:n  !<(state-13:n sv)
+  |=  s2=state
+  ?:  =(0 (lent (skim caz |=(c=card ?=([%pass * %agent * %poke %mcp-proxy-action *] c)))))
+    |+['no mcp-proxy-action poke emitted']~
+  ?.  ?=(^ api-key.s)
+    |+['api-key not minted by register-mcp']~
+  &+[~ s2]
+::
 ::  ====  test-api-key-clear-disables-bypass  ====
 ++  test-api-key-clear-disables-bypass
   %-  eval-mare

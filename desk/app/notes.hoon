@@ -1,6 +1,6 @@
 ::  notes: shared notebook Gall agent (dual-mode host/subscriber)
 ::
-/-  n=notes
+/-  n=notes, mcp-proxy
 /+  default-agent, dbug, verb, notes-json
 /=  ui            /lib/notes-ui
 /=  share-page    /lib/notes-share
@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'put-note-rename-move'
+++  dummy  'mcp-button-shows-connected-state'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -755,6 +755,15 @@
     ?.  =(src.bowl our.bowl)  ~
     =/  jon=json  ?~(api-key ~ s+u.api-key)
     ``json+!>(jon)
+    ::  /x/v0/mcp-status — does this ship have %mcp-proxy installed?
+    ::  Used by the UI to decide whether to surface the "Connect to MCP"
+    ::  action. Local-only.
+      [%x %v0 %mcp-status ~]
+    ?.  =(src.bowl our.bowl)  ~
+    =/  jon=json
+      %-  pairs:enjs:format
+      ~[['installed' b+mcp-proxy-installed]]
+    ``json+!>(jon)
     ::  /x/v0/<kind>/<ship>/<name>[/<rest>] — delegate to no-peek
       [%x %v0 kind=@ ship=@ name=@ rest=*]
     =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
@@ -811,6 +820,16 @@
     ?.  (~(has by books) flag)  cor
     =/  rid=request-id:v1:n  (slav %uv id.pole)
     no-abet:(no-agent-req-poke:(no-abed:no-core flag) rid sign)
+  ::
+  ::  /mcp/{register,refresh} — pokes to %mcp-proxy from
+  ::  +register-with-mcp-proxy. Fire-and-forget: log nacks so the user
+  ::  knows registration didn't take, ignore success acks.
+      [%mcp ?(%register %refresh) ~]
+    ?+  -.sign  cor
+        %poke-ack
+      ?~  p.sign  cor
+      ((slog leaf+"mcp-proxy register/refresh failed" u.p.sign) cor)
+    ==
   ==
 ::
 ++  arvo
@@ -1222,6 +1241,53 @@
   ?~  hdr  |
   =(u.hdr u.api-key)
 ::
+::  +mcp-proxy-installed: standard %gu liveness probe — true iff
+::  %mcp-proxy is currently a running agent on this ship.
+++  mcp-proxy-installed
+  ^-  ?
+  .^(? %gu /(scot %p our.bowl)/mcp-proxy/(scot %da now.bowl)/$)
+::
+::  +register-with-mcp-proxy: emit the two cards that wire %notes into
+::  the local %mcp-proxy as an openapi upstream:
+::    1. %add-server  — registers id=%notes pointing at this ship's
+::                      eyre, with the api-key in headers
+::    2. %refresh-spec — primes mcp-proxy's spec cache so the tools
+::                       become callable without a separate refresh
+::  Mints the api-key on demand if missing (so the model can hit a
+::  brand-new install without a separate regenerate step). `base-url`
+::  is the eyre origin (e.g. 'http://localhost:8080'); on ~, defaults.
+++  register-with-mcp-proxy
+  |=  base-url=(unit @t)
+  ^+  cor
+  =/  base=@t  (fall base-url 'http://localhost:8080')
+  =?  api-key  ?=(~ api-key)  `(scot %uv eny.bowl)
+  =/  key=@t  ?~(api-key '' u.api-key)
+  =/  notes-url=@t     (cat 3 base '/notes')
+  =/  schema-url=@t    (cat 3 base '/notes/openapi.json')
+  =/  add=action:mcp-proxy
+    :+  %add-server  %notes
+    ^-  mcp-server:mcp-proxy
+    :*  name='Notes'
+        url=notes-url
+        headers=~[[key='x-api-key' value=key]]
+        enabled=&
+        oauth-provider=~
+        mode=%openapi
+        schema-url=`schema-url
+    ==
+  =/  refresh=action:mcp-proxy  [%refresh-spec %notes]
+  =.  cor
+    %-  emit
+    :*  %pass  /mcp/register
+        %agent  [our.bowl %mcp-proxy]
+        %poke   mcp-proxy-action+!>(add)
+    ==
+  %-  emit
+  :*  %pass  /mcp/refresh
+      %agent  [our.bowl %mcp-proxy]
+      %poke   mcp-proxy-action+!>(refresh)
+  ==
+::
 ::  +dispatch-v1-action: top-level v1 action routing. Used by both
 ::  +poke %notes-action-1 (after src.bowl gate) and +handle-v1-post
 ::  (after eyre-or-api-key gate). Registers the request, runs the
@@ -1269,6 +1335,10 @@
         %clear-api-key
       =.  api-key  ~
       (finalize-request rid [%api-key ~])
+    ::
+        %register-mcp
+      =.  cor  (register-with-mcp-proxy base-url.a-act)
+      (finalize-request rid [%no-change ~])
     ==
   =/  =flag:n  flag.a-act
   ?+    -.a-notebook.a-act
