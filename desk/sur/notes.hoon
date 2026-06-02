@@ -25,6 +25,20 @@
       updated-by=ship
   ==
 ::
+::  $nest: channel identifier shared with %groups. Structurally identical
+::  to groups' nest (kind term + host + name); for %notes channels the
+::  kind is always %notes and [host name] is the notebook flag. Used by the
+::  %notes-join / %notes-leave channel-host pokes from %groups.
+::
++$  nest  [kind=@tas host=@p name=@tas]
+::
+::  channel-host poke payloads. %groups pokes %notes-join / %notes-leave
+::  to auto-join/leave a notes channel as the group fleet changes. join
+::  carries the group flag so the host can record affiliation; leave just
+::  identifies the nest.
++$  channel-join   [=nest group=flag]
++$  channel-leave  [=nest]
+::
 ::  $folder: directory node inside a notebook
 ::
 +$  folder
@@ -99,7 +113,7 @@
 ::  notebook-scoped actions are routed via [%notebook =flag =a-notebook].
 ::
 +$  a-notes
-  $%  [%create-notebook title=@t]
+  $%  [%create-notebook title=@t group=(unit flag)]
       [%join =flag]
       [%leave =flag]
       [%accept-invite =flag]
@@ -359,6 +373,25 @@
 ::  Versioned state — newest first
 ::  ============================================================
 ::
+::  state-14: adds book-groups — optional Tlon group affiliation per
+::  notebook flag. Kept out of band (not inside $notebook) so it doesn't
+::  cascade into the on-disk log/u-notebook entries that embed $notebook.
+::  When a flag has an entry, the notebook is a group channel and read
+::  permission defers to the group's can-read for the [%notes flag] nest.
++$  state-14
+  $:  %14
+      books=(map flag [=net =notebook-state])
+      next-id=@ud
+      published=(map [=flag note-id=@ud] @t)
+      invites=(map flag invite-info)
+      requests=requests:v1
+      api-key=(unit @t)
+      rid-counter=@ud
+      book-groups=(map flag flag)
+  ==
+::
++$  state  state-14
+::
 ::  state-13: adds rid-counter so synthesized request-ids (the legacy
 ::  %notes-action poke arm + any other callers without a client-side
 ::  uv generator) are guaranteed unique across pokes within an event
@@ -373,8 +406,6 @@
       api-key=(unit @t)
       rid-counter=@ud
   ==
-::
-+$  state  state-13
 ::
 ::  state-12: adds api-key for the X-Api-Key HTTP auth bypass.
 +$  state-12

@@ -616,7 +616,13 @@
         %'create-notebook'
       =/  title=(unit json)  (~(get by p.jon) 'title')
       ?>  ?=(^ title)
-      [%create-notebook (so u.title)]
+      =/  group-j=(unit json)  (~(get by p.jon) 'group')
+      =/  group=(unit flag:n)
+        ?~  group-j  ~
+        ?.  ?=([%o *] u.group-j)  ~
+        =/  raw  ((ot ~[['host' (su ;~(pfix sig fed:ag))] ['flagName' so]]) u.group-j)
+        `[-.raw `@tas`+.raw]
+      [%create-notebook (so u.title) group]
         %'join'
       :-  %join
       =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) jon)
