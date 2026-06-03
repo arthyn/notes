@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'mcp-server-url-is-eyre-root'
+++  dummy  'normalize-src-on-http-clean'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -288,6 +288,15 @@
   |^
   ?+  mark  ~|(bad-mark+mark !!)
       %handle-http-request
+    ::  Normalize src.bowl to our.bowl for the rest of the http path.
+    ::  Eyre sets src to a synthetic '<random>--<host>' guest @p for
+    ::  unauthenticated browser sessions, which then fails downstream
+    ::  permission checks like +se-is-owner even when the caller has a
+    ::  valid X-Api-Key (or eyre session). The api-key IS the host's
+    ::  capability and a valid session IS into our ship, so once the
+    ::  request authorizes inside +handle-v1-post the effective actor
+    ::  is our.bowl regardless of which @p eyre put in src.
+    =.  bowl  bowl(src our.bowl)
     (serve-http !<([eyre-id=@ta =inbound-request:eyre] vase))
   ::
       %notes-action
