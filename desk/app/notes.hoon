@@ -841,14 +841,19 @@
   |=  [=(pole knot) =sign:agent:gall]
   ^+  cor
   ?+  pole  ~|(bad-agent-wire+pole !!)
-      ::  %groups revocation watch. We don't parse the fact (no groups sur
-      ::  dependency) — any group change triggers a full subscriber recheck.
+      ::  %groups revocation watch. We avoid a groups-sur dependency by
+      ::  extracting just the changed group's flag from the r-groups fact
+      ::  ([flag r-group] — flag is the head) and rechecking only the
+      ::  subscribers of notebooks bound to that group.
       [%groups ~]
     ?+  -.sign  cor
         %watch-ack  cor
         %kick
       (emit [%pass /groups %agent [our.bowl %groups] %watch /v1/groups])
-        %fact  recheck-group-access
+        %fact
+      ::  r-groups fact is [flag r-group]; decode just the flag head.
+      =+  !<([=flag:n *] q.cage.sign)
+      (recheck-group-access flag)
     ==
   ::
       [%notes %sub ship=@ name=@ ~]
@@ -1029,16 +1034,20 @@
   ?~  qi  url
   (scag u.qi url)
 ::
-::  +group-can-read: scry our LOCAL %groups replica for whether `who` may
-::  read the [%notes flag] nest in group `grp`. Guarded with %gu so an
-::  unsynced group (or one we don't carry) fails closed instead of crashing.
+::  +group-can-read: ask our LOCAL %groups replica whether `who` may read the
+::  [%notes flag] nest in group `grp`. Mirrors +can-read in tlon's
+::  channel-utils: scry the bulk `can-read` GATE (%gx, not %gu — %groups only
+::  serves %x peeks) and apply it to [ship nest]. Relies on the group being
+::  present locally (we host the notebook, so we're a member); a missing group
+::  crashes the peek, which fails an se-watch closed.
 ++  group-can-read
   |=  [grp=flag:n =flag:n who=ship]
   ^-  ?
-  =/  cr=path
-    /(scot %p our.bowl)/groups/(scot %da now.bowl)/v2/groups/(scot %p ship.grp)/[name.grp]/channels/notes/(scot %p ship.flag)/[name.flag]/can-read/(scot %p who)
-  ?.  .^(? %gu cr)  |
-  .^(? %gx cr)
+  ?:  =(our.bowl who)  &
+  =/  gpath=path
+    /(scot %p our.bowl)/groups/(scot %da now.bowl)/v2/groups/(scot %p ship.grp)/[name.grp]/channels/can-read/noun
+  =/  test=$-([ship nest:n] ?)  .^($-([ship nest:n] ?) %gx gpath)
+  (test who [%notes ship.flag name.flag])
 ::
 ::  +can-view-flag: check if ship can view a notebook by flag. Group-mode
 ::  notebooks defer to the group's can-read; others use the members map.
@@ -1046,18 +1055,17 @@
   |=  [=flag:n who=ship]
   ^-  ?
   ?~  entry=(get-book flag)  |
-  =/  grp  (~(get by book-groups) flag)
-  ?^  grp
-    (group-can-read u.grp flag who)
-  !=(~ (~(get by members.notebook-state.u.entry) who))
+  ?~  grp=(~(get by book-groups) flag)
+    !=(~ (~(get by members.notebook-state.u.entry) who))
+  (group-can-read u.grp flag who)
 ::
-::  +recheck-group-access: a group fact arrived, so read permissions may
-::  have changed. For every remote subscriber on a hosted group-mode
-::  notebook's update path, re-run the group can-read gate and %kick any
-::  who've lost access. Grants are handled by the %notes-join auto-join, so
-::  this only revokes. We ignore the fact's contents (no groups sur dep) —
-::  any change triggers a full recheck.
+::  +recheck-group-access: a fact arrived for group `changed`, so read
+::  permissions there may have shifted. Re-run can-read for every remote
+::  subscriber on a hosted notebook bound to that group and %kick any who've
+::  lost access. Scoped to the one changed group (not all notebooks). Grants
+::  are handled by the %notes-join auto-join, so this only revokes.
 ++  recheck-group-access
+  |=  changed=flag:n
   ^+  cor
   =/  kicks=(list card)
     %+  murn  ~(val by sup.bowl)
@@ -1066,8 +1074,8 @@
     ?.  ?=([%v0 %notes @ @ %updates ~] pax)  ~
     =/  =flag:n  [(slav %p i.t.t.pax) `@tas`i.t.t.t.pax]
     ?.  =(our.bowl ship.flag)  ~
-    ?.  (~(has by books) flag)  ~
-    ?.  (~(has by book-groups) flag)  ~
+    ?~  grp=(~(get by book-groups) flag)  ~
+    ?.  =(u.grp changed)  ~
     ?:  (can-view-flag flag who)  ~
     `[%give %kick ~[pax] `who]
   (emil kicks)
@@ -1602,8 +1610,7 @@
   ++  se-can-view
     |=  who=ship
     ^-  ?
-    =/  grp  (~(get by book-groups) flag)
-    ?~  grp
+    ?~  grp=(~(get by book-groups) flag)
       !=(~ (~(get by members.notebook-state) who))
     (group-can-read u.grp flag who)
   ::
@@ -1731,16 +1738,18 @@
     |=  cmd=c-cmd:n
     ^+  se-core
     ?>  ?=(%member-join -.c-notebook.cmd)
-    ::  group-mode: the group's can-read (via se-can-view) is the authority —
-    ::  reject if it says no. non-group private notebooks reject joins from
-    ::  non-members. either way we record the joiner as %editor so the
-    ::  members-based write gate (se-can-edit) lets them edit.
-    ?:  ?~  (~(get by book-groups) flag)
-          ?&  =(%private se-visibility)
-              !(se-can-view src.bowl)
+    ::  Access check — one of three cases:
+    ::    non-group private: src must already be in the members map
+    ::    non-group public:  anyone is welcome — no check needed
+    ::    group-mode:        group's can-read is the sole authority
+    ::  Either way, record the joiner as %editor so se-can-edit lets them write.
+    ?>  ?~  grp=(~(get by book-groups) flag)
+          ::  non-group: public ok; private requires prior membership
+          ?|  =(%public se-visibility)
+              !=(~ (~(get by members.notebook-state) src.bowl))
           ==
-        !(se-can-view src.bowl)
-      ~|(notebook-access+flag !!)
+        ::  group-mode: group's can-read is the sole authority
+        (group-can-read u.grp flag src.bowl)
     =.  members.notebook-state
       (~(put by members.notebook-state) src.bowl %editor)
     (se-update [%member-joined src.bowl %editor])
