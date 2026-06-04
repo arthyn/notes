@@ -1611,22 +1611,22 @@
     (~(put by *members:n) ~zod %owner)
   =/  flds-local=(map @ud folder:n)
     (~(put by *(map @ud folder:n)) 12 rf-local)
-  =/  nbs-local=notebook-state:n
+  =/  nbs-local=notebook-state-13:n
     [nb-local mbrs-local %private flds-local ~ ~]
   ::  build subscriber notebook (hosted by ~bus)
   =/  nb-remote=notebook:n  [22 'Bar Book' ~bus *@da *@da ~bus]
   =/  rf-remote=folder:n    [23 22 '/' ~ ~bus *@da *@da ~bus]
   =/  flds-remote=(map @ud folder:n)
     (~(put by *(map @ud folder:n)) 23 rf-remote)
-  =/  nbs-remote=notebook-state:n
+  =/  nbs-remote=notebook-state-13:n
     [nb-remote *members:n %private flds-remote ~ ~]
   ::  state-9 books map uses flag-v9
   =/  fl-local=flag-v9:n   [~zod '11']
   =/  fl-remote=flag-v9:n  [~bus '22']
   =/  net-local=net:n   [%pub *log:n]
   =/  net-remote=net:n  [%sub *@da |]
-  =/  bks=(map flag-v9:n [=net:n =notebook-state:n])
-    =/  m0=(map flag-v9:n [=net:n =notebook-state:n])  ~
+  =/  bks=(map flag-v9:n [=net:n notebook-state=notebook-state-13:n])
+    =/  m0=(map flag-v9:n [=net:n notebook-state=notebook-state-13:n])  ~
     =.  m0  (~(put by m0) fl-local [net-local nbs-local])
     =.  m0  (~(put by m0) fl-remote [net-remote nbs-remote])
     m0
@@ -2359,7 +2359,7 @@
   |=  s=state
   =/  nb=notebook:n
     [1 'Test' ~zod ~1970.1.1 ~1970.1.1 ~zod]
-  =/  nb-s=notebook-state:n  [nb ~ %private ~ ~ ~]
+  =/  nb-s=notebook-state:n  [nb ~ %private ~ ~ ~ ~]
   =/  res=response:n  [%snapshot [~zod %foo] %public nb-s]
   =/  jon=json  (response:enjs:notes-json res)
   ?.  ?=([%o *] jon)

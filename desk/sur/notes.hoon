@@ -112,8 +112,25 @@
       notes=(map @ud note)
   ==
 ::
-::  $notebook-state: all data for a single notebook (state-9+)
+::  $notebook-state: all data for a single notebook (state-13+).
+::  group: optional Tlon group affiliation. When set, the notebook is a group
+::  channel — read permission defers to the group's can-read. Set once at
+::  create (host) and propagated to subscribers via the %snapshot. Lives on
+::  notebook-state (not $notebook) so it stays out of the on-disk log, which
+::  embeds $notebook via u-notebook.
 +$  notebook-state
+  $:  =notebook
+      =members
+      =visibility
+      folders=(map @ud folder)
+      notes=(map @ud note)
+      history=(map note-id=@ud (list note-revision))
+      group=(unit flag)
+  ==
+::
+::  $notebook-state-13: frozen pre-group notebook-state, embedded by states
+::  9..13 books maps and their migration arms (group arrived in state-14).
++$  notebook-state-13
   $:  =notebook
       =members
       =visibility
@@ -389,11 +406,7 @@
 ::  Versioned state — newest first
 ::  ============================================================
 ::
-::  state-14: adds book-groups — optional Tlon group affiliation per
-::  notebook flag. Kept out of band (not inside $notebook) so it doesn't
-::  cascade into the on-disk log/u-notebook entries that embed $notebook.
-::  When a flag has an entry, the notebook is a group channel and read
-::  permission defers to the group's can-read for the [%notes flag] nest.
+::  state-14: notebook-state gains optional `group` for group-channel mode.
 +$  state-14
   $:  %14
       books=(map flag [=net =notebook-state])
@@ -403,18 +416,15 @@
       requests=requests:v1
       api-key=(unit @t)
       rid-counter=@ud
-      book-groups=(map flag flag)
   ==
 ::
 +$  state  state-14
 ::
-::  state-13: adds rid-counter so synthesized request-ids (the legacy
-::  %notes-action poke arm + any other callers without a client-side
-::  uv generator) are guaranteed unique across pokes within an event
-::  budget that doesn't advance bowl.eny — i.e., test-agent.
+::  state-13: adds rid-counter (unique synthesized request-ids). Deployed
+::  without group — group arrived in state-14 (on notebook-state).
 +$  state-13
   $:  %13
-      books=(map flag [=net =notebook-state])
+      books=(map flag [=net notebook-state=notebook-state-13])
       next-id=@ud
       published=(map [=flag note-id=@ud] @t)
       invites=(map flag invite-info)
@@ -426,7 +436,7 @@
 ::  state-12: adds api-key for the X-Api-Key HTTP auth bypass.
 +$  state-12
   $:  %12
-      books=(map flag [=net =notebook-state])
+      books=(map flag [=net notebook-state=notebook-state-13])
       next-id=@ud
       published=(map [=flag note-id=@ud] @t)
       invites=(map flag invite-info)
@@ -437,7 +447,7 @@
 ::  state-11: adds requests map for HTTP / request-id correlation
 +$  state-11
   $:  %11
-      books=(map flag [=net =notebook-state])
+      books=(map flag [=net notebook-state=notebook-state-13])
       next-id=@ud
       published=(map [=flag note-id=@ud] @t)
       invites=(map flag invite-info)
@@ -447,7 +457,7 @@
 ::  state-10: flag.name tightened to @tas slug (no requests map)
 +$  state-10
   $:  %10
-      books=(map flag [=net =notebook-state])
+      books=(map flag [=net notebook-state=notebook-state-13])
       next-id=@ud
       published=(map [=flag note-id=@ud] @t)
       invites=(map flag invite-info)
@@ -457,7 +467,7 @@
 ::  Uses flag-v9 (name=@t) in map keys — stored atoms weren't valid @tas.
 +$  state-9
   $:  %9
-      books=(map flag-v9 [=net =notebook-state])
+      books=(map flag-v9 [=net notebook-state=notebook-state-13])
       next-id=@ud
       published=(map [=flag-v9 note-id=@ud] @t)
       invites=(map flag-v9 invite-info)

@@ -222,7 +222,7 @@
     ~>  %spin.['state-8-to-9']
     |=  s=state-8:n
     ^-  state-9:n
-    =/  new-books=(map flag-v9:n [=net:n =notebook-state:n])
+    =/  new-books=(map flag-v9:n [=net:n notebook-state=notebook-state-13:n])
       %-  ~(urn by books.s)
       |=  [f=flag-v9:n [=net:n old-nbs=notebook-state-v8:n]]
       =/  nb-hist=(map @ud (list note-revision:n))
@@ -231,7 +231,7 @@
         |=  [[kf=flag-v9:n nid=@ud] v=(list note-revision:n)]
         ?.  =(kf f)  ~
         `[nid v]
-      =/  new-nbs=notebook-state:n
+      =/  new-nbs=notebook-state-13:n
         :*  notebook.old-nbs
             notebook-members.old-nbs
             (fall (~(get by visibilities.s) f) %private)
@@ -249,13 +249,13 @@
     =/  xlat=(map flag-v9:n flag:n)
       %-  malt
       %+  turn  ~(tap by books.s)
-      |=  [f=flag-v9:n [* =notebook-state:n]]
+      |=  [f=flag-v9:n [* notebook-state=notebook-state-13:n]]
       =/  new-name=@tas  (slugify [title id]:notebook.notebook-state)
       [f [ship.f new-name]]
-    =/  new-books=(map flag:n [=net:n =notebook-state:n])
+    =/  new-books=(map flag:n [=net:n notebook-state=notebook-state-13:n])
       %-  malt
       %+  turn  ~(tap by books.s)
-      |=  [f=flag-v9:n entry=[=net:n =notebook-state:n]]
+      |=  [f=flag-v9:n entry=[=net:n notebook-state=notebook-state-13:n]]
       =/  =flag:n  (~(got by xlat) f)
       [flag entry]
     =/  new-pub=(map [=flag:n note-id=@ud] @t)
@@ -284,19 +284,31 @@
     ^-  state-12:n
     [%12 books.s next-id.s published.s invites.s requests.s ~]
   ::
+  ::  state-12-to-13: adds rid-counter (0). books pass through unchanged
+  ::  (state-13 still uses the pre-group notebook-state-13).
   ++  state-12-to-13
     ~>  %spin.['state-12-to-13']
     |=  s=state-12:n
     ^-  state-13:n
     [%13 books.s next-id.s published.s invites.s requests.s api-key.s 0]
   ::
-  ::  state-13-to-14: adds book-groups (empty — pre-existing notebooks have
-  ::  no group affiliation; group is set only via create-in-group).
+  ::  state-13-to-14: widen each notebook-state with group=~ (pre-existing
+  ::  notebooks have no group affiliation; group is set only via
+  ::  create-in-group). The on-disk log is untouched (it embeds $notebook,
+  ::  not $notebook-state).
   ++  state-13-to-14
     ~>  %spin.['state-13-to-14']
     |=  s=state-13:n
     ^-  state-14:n
-    [%14 books.s next-id.s published.s invites.s requests.s api-key.s rid-counter.s ~]
+    =/  new-books=(map flag:n [=net:n =notebook-state:n])
+      %-  ~(run by books.s)
+      |=  [=net:n nbs=notebook-state-13:n]
+      ^-  [net:n notebook-state:n]
+      :-  net
+      :*  notebook.nbs  members.nbs  visibility.nbs
+          folders.nbs  notes.nbs  history.nbs  ~
+      ==
+    [%14 new-books next-id.s published.s invites.s requests.s api-key.s rid-counter.s]
   --
 ::
 ++  poke
@@ -359,10 +371,6 @@
     =+  !<(j=channel-join:n vase)
     =/  =flag:n  [host.nest.j name.nest.j]
     ?:  =(our.bowl ship.flag)  cor
-    ::  record the group affiliation so +no-start-watch can report active to
-    ::  %groups. the host sets this in se-create-notebook; subscribers learn
-    ::  it from the join poke. idempotent on re-join.
-    =.  book-groups  (~(put by book-groups) flag group.j)
     ?:  (~(has by books) flag)  cor
     =/  rid=request-id:v1:n  `@uv`(mix eny.bowl rid-counter)
     =.  rid-counter  +(rid-counter)
@@ -1072,7 +1080,7 @@
   |=  [=flag:n who=ship]
   ^-  ?
   ?~  entry=(get-book flag)  |
-  ?~  grp=(~(get by book-groups) flag)
+  ?~  grp=group.notebook-state.u.entry
     !=(~ (~(get by members.notebook-state.u.entry) who))
   (group-can-read u.grp flag who)
 ::
@@ -1091,7 +1099,8 @@
     ?.  ?=([%v0 %notes @ @ %updates ~] pax)  ~
     =/  =flag:n  [(slav %p i.t.t.pax) `@tas`i.t.t.t.pax]
     ?.  =(our.bowl ship.flag)  ~
-    ?~  grp=(~(get by book-groups) flag)  ~
+    ?~  entry=(~(get by books) flag)  ~
+    ?~  grp=group.notebook-state.u.entry  ~
     ?.  =(u.grp changed)  ~
     ?:  (can-view-flag flag who)  ~
     `[%give %kick ~[pax] `who]
@@ -1278,7 +1287,7 @@
   =/  =notebook:n
     [0 '' ship.flag *@da *@da ship.flag]
   =/  placeholder-nb-state=notebook-state:n
-    [notebook ~ %private ~ ~ ~]
+    [notebook ~ %private ~ ~ ~ ~]
   =.  books
     (~(put by books) flag [placeholder-net placeholder-nb-state])
   =/  cmd1=command:v1:n  [rid [%notebook flag [%member-join ~]]]
@@ -1292,10 +1301,9 @@
   |=  [rid=request-id:v1:n =flag:n]
   ^+  cor
   ?>  (~(has by books) flag)
-  ::  no-leave reports the leave to %groups (reads book-groups), so drop the
-  ::  affiliation only after.
+  ::  no-leave reports the leave to %groups and drops the local book (incl.
+  ::  its group) via the gone flag.
   =.  cor  no-abet:no-leave:(no-abed:no-core flag)
-  =.  book-groups  (~(del by book-groups) flag)
   =/  cmd1=command:v1:n  [rid [%notebook flag [%member-leave ~]]]
   (send-v1-request rid ship.flag flag cmd1)
 ::
@@ -1630,7 +1638,7 @@
   ++  se-can-view
     |=  who=ship
     ^-  ?
-    ?~  grp=(~(get by book-groups) flag)
+    ?~  grp=group.notebook-state
       !=(~ (~(get by members.notebook-state) who))
     (group-can-read u.grp flag who)
   ::
@@ -1674,14 +1682,13 @@
           (~(put by *(map @ud folder:n)) rfid [rfid nid '/' ~ [our now now our]:bowl])
           ~
           ~
+          group.act
       ==
     =.  next-id  rfid
     =.  notebook-state  nb-state
     =.  books
       (~(put by books) flag [[%pub *log:n] notebook-state])
-    ::  group-mode: record affiliation out of band (book-groups)
-    =?  book-groups  ?=(^ group.act)
-      (~(put by book-groups) flag u.group.act)
+    ::  group-mode: register the channel listing with %groups
     =?  se-core  ?=(^ group.act)
       =/  channel=group-channel:n
         :-  [title.act '' '' '']
@@ -1737,9 +1744,8 @@
       %+  skip  ~(tap by published)
       |=  [k=[=flag:n note-id=@ud] v=@t]
       =(flag.k flag)
-    ::  drop any group affiliation for this notebook
-    =.  book-groups  (~(del by book-groups) flag)
-    ::  history and visibility live in notebook-state, deleted via gone flag
+    ::  group affiliation, history and visibility live in notebook-state,
+    ::  deleted with the book via the gone flag
     =.  se-core  (se-update [%deleted ~])
     se-core(gone &)
   ::
@@ -1772,7 +1778,7 @@
     ::    non-group public:  anyone is welcome — no check needed
     ::    group-mode:        group's can-read is the sole authority
     ::  Either way, record the joiner as %editor so se-can-edit lets them write.
-    ?>  ?~  grp=(~(get by book-groups) flag)
+    ?>  ?~  grp=group.notebook-state
           ::  non-group: public ok; private requires prior membership
           ?|  =(%public se-visibility)
               !=(~ (~(get by members.notebook-state) src.bowl))
@@ -2232,6 +2238,7 @@
   |_  [=flag:n =net:n =notebook-state:n gone=_|]
   ++  no-core  .
   ++  emit  |=(=card no-core(cor cor(cards [card cards])))
+  ++  emil  |=(caz=(list card) no-core(cor cor(cards (welp (flop caz) cards))))
   ++  give  |=(=gift:agent:gall (emit %give gift))
   ::
   ::  +no-req-watch-path: path the subscriber subscribes to on the host
@@ -2403,25 +2410,28 @@
     ?.  ?&(?=(%sub -.net) !init.net)  no-core
     no-core(gone &)
   ::
-  ::  +no-report-active: tell our local %groups the channel-host active state
-  ::  of this notes nest (joined & / left |). %groups maps the nest to its
-  ::  group via channels-index and updates active-channels; it's a no-op if
-  ::  this notebook isn't a group channel, so we can report unconditionally.
+  ::  +no-report-active: card that tells our local %groups the channel-host
+  ::  active state of this notes nest (joined & / left |), or ~ if this
+  ::  notebook isn't group-affiliated. %groups updates active-channels for the
+  ::  reported group. The group lives on notebook-state (set on the host at
+  ::  create, learned by subscribers from the %snapshot).
   ++  no-report-active
-    |=  [group=flag:n joined=?]
-    ^-  card
+    |=  joined=?
+    ^-  (unit card)
+    ?~  grp=group.notebook-state  ~
     =/  =nest:n  [%notes ship.flag name.flag]
+    :-  ~
     :*  %pass  /report-active  %agent  [our.bowl %groups]
-        %poke  group-channel-active+!>([group nest joined])
+        %poke  group-channel-active+!>([u.grp nest joined])
     ==
   ::
+  ::  +no-start-watch: subscribe to the host's update stream. The active-channels
+  ::  report happens in +no-response on the %snapshot (once we know the group);
+  ::  here we only watch.
   ++  no-start-watch
     ?:  =(%pub -.net)
       %-  (slog leaf+"no-start-watch: host, skipping watch" ~)
       no-core
-    =/  group  (~(get by book-groups) flag)
-    =?  no-core  ?=(^ group)
-      (emit (no-report-active u.group &))
     (emit [%pass no-sub-wire %agent [ship.flag %notes] %watch no-sub-path])
   ::
   ++  no-leave
@@ -2429,10 +2439,10 @@
       %-  (slog leaf+"no-leave: host, skipping leave" ~)
       no-core
     =.  gone  &
-    =/  group  (~(get by book-groups) flag)
-    =?  no-core  ?=(^ group)
-      (emit (no-report-active u.group |))
-    (emit [%pass no-sub-wire %agent [ship.flag %notes] %leave ~])
+    %-  emil
+    %+  weld  (drop (no-report-active |))
+    ^-  (list card)
+    [%pass no-sub-wire %agent [ship.flag %notes] %leave ~]~
   ::
   ::  +no-publish: cache HTML for a note in this notebook so this ship's
   ::  /notes/pub/<flag>/<note-id> serves it. Self-check is enforced at the
@@ -2499,8 +2509,14 @@
       ?>  ?=(%sub -.net)
       =.  net  net(init &)
       =.  cards  [notebooks-changed-card cards]
-      %-  give
-      [%fact [/v0/notes/(scot %p ship.flag)/[name.flag]/stream]~ notes-response+!>(response)]
+      ::  the snapshot carries the host's notebook-state, so group is now
+      ::  known — report active to %groups (no-op if not a group channel).
+      =/  stream=card
+        :*  %give  %fact  [/v0/notes/(scot %p ship.flag)/[name.flag]/stream]~
+            notes-response+!>(response)
+        ==
+      =/  rep=(unit card)  (no-report-active &)
+      (emil ?~(rep ~[stream] ~[stream u.rep]))
     ::
         %update
       =.  no-core  (no-apply-update flag.response update.response)
