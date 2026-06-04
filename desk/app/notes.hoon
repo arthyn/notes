@@ -317,6 +317,15 @@
   |^
   ?+  mark  ~|(bad-mark+mark !!)
       %handle-http-request
+    ::  Normalize src.bowl to our.bowl for the rest of the http path.
+    ::  Eyre sets src to a synthetic '<random>--<host>' guest @p for
+    ::  unauthenticated browser sessions, which then fails downstream
+    ::  permission checks like +se-is-owner even when the caller has a
+    ::  valid X-Api-Key (or eyre session). The api-key IS the host's
+    ::  capability and a valid session IS into our ship, so once the
+    ::  request authorizes inside +handle-v1-post the effective actor
+    ::  is our.bowl regardless of which @p eyre put in src.
+    =.  bowl  bowl(src our.bowl)
     (serve-http !<([eyre-id=@ta =inbound-request:eyre] vase))
   ::
       %notes-action
@@ -1407,13 +1416,17 @@
   =/  base=@t  (fall base-url 'http://localhost:8080')
   =?  api-key  ?=(~ api-key)  `(scot %uv eny.bowl)
   =/  key=@t  ?~(api-key '' u.api-key)
-  =/  notes-url=@t     (cat 3 base '/notes')
-  =/  schema-url=@t    (cat 3 base '/notes/openapi.json')
+  ::  url is the eyre ORIGIN, not /notes. mcp-proxy concatenates url +
+  ::  the spec's path template (e.g. '/notes/~/v1/notebooks'); appending
+  ::  /notes here would double the segment and the request would fall
+  ::  through to the generic /notes/* catch-all that serves the UI.
+  ::  schema-url IS a real path on disk so it keeps the /notes prefix.
+  =/  schema-url=@t  (cat 3 base '/notes/openapi.json')
   =/  add=action:mcp-proxy
     :+  %add-server  %notes
     ^-  mcp-server:mcp-proxy
     :*  name='Notes'
-        url=notes-url
+        url=base
         headers=~[[key='x-api-key' value=key]]
         enabled=&
         oauth-provider=~
