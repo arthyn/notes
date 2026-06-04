@@ -39,6 +39,22 @@
 +$  channel-join   [=nest group=flag]
 +$  channel-leave  [=nest]
 ::
++$  group-channel
+  $:  meta=[title=@t description=@t image=@t cover=@t]
+      created=@da
+      section=@tas
+      readers=~
+      join=?
+  ==
++$  group-create
+  $:  %group
+      =flag
+      %channel
+      =nest
+      %add
+      channel=group-channel
+  ==
+::
 ::  $folder: directory node inside a notebook
 ::
 +$  folder

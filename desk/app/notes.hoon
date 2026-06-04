@@ -359,6 +359,10 @@
     =+  !<(j=channel-join:n vase)
     =/  =flag:n  [host.nest.j name.nest.j]
     ?:  =(our.bowl ship.flag)  cor
+    ::  record the group affiliation so +no-start-watch can report active to
+    ::  %groups. the host sets this in se-create-notebook; subscribers learn
+    ::  it from the join poke. idempotent on re-join.
+    =.  book-groups  (~(put by book-groups) flag group.j)
     ?:  (~(has by books) flag)  cor
     =/  rid=request-id:v1:n  `@uv`(mix eny.bowl rid-counter)
     =.  rid-counter  +(rid-counter)
@@ -823,13 +827,11 @@
       %-  pairs:enjs:format
       ~[['installed' b+mcp-proxy-installed]]
     ``json+!>(jon)
-    ::  /x/joined/<host>/<name> — channel-host convention. Resolves to a
-    ::  value iff we host or subscribe to this notes nest; %groups reads it
-    ::  via %gu to populate active-channels for [%notes host name].
-      [%x %joined host=@ name=@ ~]
+  ::
+      [%u %joined host=@ name=@ ~]
     =/  =flag:n  [(slav %p host.pole) `@tas`name.pole]
-    ?.  (~(has by books) flag)  ~
-    ``loob+!>(&)
+    ``loob+!>((~(has by books) flag))
+  ::
     ::  /x/v0/<kind>/<ship>/<name>[/<rest>] — delegate to no-peek
       [%x %v0 kind=@ ship=@ name=@ rest=*]
     =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
@@ -879,6 +881,21 @@
       [%notes %invite who=@ ship=@ name=@ ~]
     ?+  -.sign  cor
         %poke-ack  cor
+    ==
+  ::
+      [%notes ship=@ name=@ %create ~]
+    ?+  -.sign  cor
+        %poke-ack
+      ?~  p.sign  cor
+      ((slog leaf+"notes: adding channel to %groups failed" u.p.sign) cor)
+    ==
+  ::
+      ::  ack from +no-report-active's %groups active-channels poke
+      [%report-active ~]
+    ?+  -.sign  cor
+        %poke-ack
+      ?~  p.sign  cor
+      ((slog leaf+"notes: active-channel report to %groups failed" u.p.sign) cor)
     ==
   ::
       [%notes %leave ship=@ name=@ ~]
@@ -1275,7 +1292,10 @@
   |=  [rid=request-id:v1:n =flag:n]
   ^+  cor
   ?>  (~(has by books) flag)
+  ::  no-leave reports the leave to %groups (reads book-groups), so drop the
+  ::  affiliation only after.
   =.  cor  no-abet:no-leave:(no-abed:no-core flag)
+  =.  book-groups  (~(del by book-groups) flag)
   =/  cmd1=command:v1:n  [rid [%notebook flag [%member-leave ~]]]
   (send-v1-request rid ship.flag flag cmd1)
 ::
@@ -1662,6 +1682,15 @@
     ::  group-mode: record affiliation out of band (book-groups)
     =?  book-groups  ?=(^ group.act)
       (~(put by book-groups) flag u.group.act)
+    =?  se-core  ?=(^ group.act)
+      =/  channel=group-channel:n
+        :-  [title.act '' '' '']
+        [now.bowl %default ~ |]
+      =/  action=group-create:n
+        [%group u.group.act %channel [%notes flag] %add channel]
+      =/  =dock    [our.bowl %groups]
+      =/  =wire    /notes/(scot %p ship.flag)/[name.flag]/create
+      (emit %pass wire %agent dock %poke group-action-4+!>(action))
     =.  se-core  (emit notebooks-changed-card)
     (se-update [%created notebook %private])
   ::
@@ -2374,18 +2403,36 @@
     ?.  ?&(?=(%sub -.net) !init.net)  no-core
     no-core(gone &)
   ::
+  ::  +no-report-active: tell our local %groups the channel-host active state
+  ::  of this notes nest (joined & / left |). %groups maps the nest to its
+  ::  group via channels-index and updates active-channels; it's a no-op if
+  ::  this notebook isn't a group channel, so we can report unconditionally.
+  ++  no-report-active
+    |=  [group=flag:n joined=?]
+    ^-  card
+    =/  =nest:n  [%notes ship.flag name.flag]
+    :*  %pass  /report-active  %agent  [our.bowl %groups]
+        %poke  group-channel-active+!>([group nest joined])
+    ==
+  ::
   ++  no-start-watch
-    ^+  no-core
-    ?>  ?=(%sub -.net)
-    %-  emit
-    [%pass no-sub-wire %agent [ship.flag %notes] %watch no-sub-path]
+    ?:  =(%pub -.net)
+      %-  (slog leaf+"no-start-watch: host, skipping watch" ~)
+      no-core
+    =/  group  (~(get by book-groups) flag)
+    =?  no-core  ?=(^ group)
+      (emit (no-report-active u.group &))
+    (emit [%pass no-sub-wire %agent [ship.flag %notes] %watch no-sub-path])
   ::
   ++  no-leave
-    ^+  no-core
-    ?>  ?=(%sub -.net)
+    ?:  =(%pub -.net)
+      %-  (slog leaf+"no-leave: host, skipping leave" ~)
+      no-core
     =.  gone  &
-    %-  emit
-    [%pass no-sub-wire %agent [ship.flag %notes] %leave ~]
+    =/  group  (~(get by book-groups) flag)
+    =?  no-core  ?=(^ group)
+      (emit (no-report-active u.group |))
+    (emit [%pass no-sub-wire %agent [ship.flag %notes] %leave ~])
   ::
   ::  +no-publish: cache HTML for a note in this notebook so this ship's
   ::  /notes/pub/<flag>/<note-id> serves it. Self-check is enforced at the
