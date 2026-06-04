@@ -43,7 +43,7 @@
   $:  meta=[title=@t description=@t image=@t cover=@t]
       created=@da
       section=@tas
-      readers=~
+      readers=(set @tas)
       join=?
   ==
 +$  group-create
@@ -146,7 +146,11 @@
 ::  notebook-scoped actions are routed via [%notebook =flag =a-notebook].
 ::
 +$  a-notes
-  $%  [%create-notebook title=@t group=(unit flag)]
+  $%  [%create-notebook title=@t]
+      ::  %create-group-notebook: born inside a group. defers read perms to
+      ::  the group; readers are the group role-ids the channel is restricted
+      ::  to (empty = open). forwarded opaquely to %groups on registration.
+      [%create-group-notebook title=@t group=flag readers=(set @tas)]
       [%join =flag]
       [%leave =flag]
       [%accept-invite =flag]

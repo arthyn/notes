@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'group-channel-mode-v1'
+++  dummy  'create-group-notebook-readers-v1'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -648,6 +648,23 @@
   ?~  host=(slaw %p p.u.host-j)  ~
   `[u.host `@tas`p.u.name-j]
 ::
+::  +field-readers: read a JSON array of role-id strings into (set @tas).
+::  absent / malformed / non-string elements → dropped; absent field or
+::  empty array → empty set (open channel). role-ids are reinterpreted as
+::  terms (they always are valid terms on the wire).
+++  field-readers
+  |=  [obj=(map @t json) key=@t]
+  ^-  (set @tas)
+  ?~  v=(~(get by obj) key)  ~
+  ?.  ?=([%a *] u.v)  ~
+  %-  ~(gas in *(set @tas))
+  %+  murn  p.u.v
+  |=  j=json
+  ^-  (unit @tas)
+  ?.  ?=([%s *] j)  ~
+  =/  r=@tas  `@tas``@`p.j
+  `r
+::
 ::  +build-write-action: translate a REST write (method + path segments +
 ::  json body) into an a-notes action, or ~ if the shape isn't recognized
 ::  / required fields are missing. These are the "first-class" convenience
@@ -663,7 +680,11 @@
   ^-  (unit a-notes:n)
   ?:  &(=(%'POST' method) ?=([%notebooks ~] pax))
     ?~  title=(field-cord obj 'title')  ~
-    `[%create-notebook u.title (field-flag obj 'group')]
+    ::  group present → born-in-group (defers reads to the group, carries
+    ::  the group role-readers); else a plain solo notebook.
+    ?~  grp=(field-flag obj 'group')
+      `[%create-notebook u.title]
+    `[%create-group-notebook u.title u.grp (field-readers obj 'readers')]
   ?.  ?=([%notebooks @ @ *] pax)  ~
   ?~  host=(slaw %p i.t.pax)  ~
   =/  =flag:n  [u.host `@tas`i.t.t.pax]
@@ -1462,10 +1483,19 @@
     ::  - asynchronous: fires a cross-ship v1 request whose terminal
     ::    response-update arrives later via no-agent-req-watch
     ?-  -.a-act
-        %create-notebook
+        ?(%create-notebook %create-group-notebook)
       ::  return the new notebook's summary so the caller learns the
-      ::  slugified flag + metadata without a follow-up scry.
-      =/  core  (se-create-notebook:(se-init:se-core a-act) a-act)
+      ::  slugified flag + metadata without a follow-up scry. group-mode
+      ::  carries the affiliation + group role-readers; solo passes ~ ~.
+      ::  the two variants put `title` at different axes, so extract every
+      ::  field inside one ?= narrow rather than across the fork.
+      =/  args=[title=@t group=(unit flag:n) readers=(set @tas)]
+        ?:  ?=(%create-group-notebook -.a-act)
+          [title.a-act `group.a-act readers.a-act]
+        [title.a-act ~ ~]
+      =/  core
+        %.  args
+        se-create-notebook:(se-init:se-core title.args)
       =.  cor  se-abet:core
       =/  =notebook-summary:n
         :+  flag.core  notebook.notebook-state.core
@@ -1538,11 +1568,10 @@
   ::
   ::  +se-init: initialize for a brand-new notebook
   ++  se-init
-    |=  act=action:n
+    |=  title=@t
     ^+  se-core
-    ?>  ?=(%create-notebook -.act)
     =/  nid=@ud  +(next-id)
-    =/  =flag:n  [our.bowl (slugify title.act nid)]
+    =/  =flag:n  [our.bowl (slugify title nid)]
     se-core(flag flag)
   ::
   ::  +se-abed: load from state for a given flag
@@ -1677,17 +1706,16 @@
     ^-  visibility:n
     visibility.notebook-state
   ::
-  ::  +se-create-notebook: handle %create-notebook action
+  ::  +se-create-notebook: create a notebook (solo or group-mode)
   ::  nid is +(next-id) — same value se-init used to build the flag slug;
   ::  state has not been modified between se-init and this call.
   ++  se-create-notebook
-    |=  act=action:n
+    |=  [title=@t group=(unit flag:n) readers=(set @tas)]
     ^+  se-core
-    ?>  ?=(%create-notebook -.act)
     =/  nid=@ud  +(next-id)
     =/  rfid=@ud  +(nid)
     =/  =notebook:n
-      [nid title.act our.bowl now.bowl now.bowl our.bowl]
+      [nid title our.bowl now.bowl now.bowl our.bowl]
     =/  nb-state=notebook-state:n
       :*  notebook
           (~(put by *members:n) our.bowl %owner)
@@ -1695,19 +1723,20 @@
           (~(put by *(map @ud folder:n)) rfid [rfid nid '/' ~ [our now now our]:bowl])
           ~
           ~
-          group.act
+          group
       ==
     =.  next-id  rfid
     =.  notebook-state  nb-state
     =.  books
       (~(put by books) flag [[%pub *log:n] notebook-state])
-    ::  group-mode: register the channel listing with %groups
-    =?  se-core  ?=(^ group.act)
+    ::  group-mode: register the channel listing with %groups, carrying the
+    ::  group role-readers so the group's can-read gates the notebook.
+    =?  se-core  ?=(^ group)
       =/  channel=group-channel:n
-        :-  [title.act '' '' '']
-        [now.bowl %default ~ |]
+        :-  [title '' '' '']
+        [now.bowl %default readers |]
       =/  action=group-create:n
-        [%group u.group.act %channel [%notes flag] %add channel]
+        [%group u.group %channel [%notes flag] %add channel]
       =/  =dock    [our.bowl %groups]
       =/  =wire    /notes/(scot %p ship.flag)/[name.flag]/create
       (emit %pass wire %agent dock %poke group-action-4+!>(action))

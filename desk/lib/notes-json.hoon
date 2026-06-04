@@ -616,13 +616,21 @@
         %'create-notebook'
       =/  title=(unit json)  (~(get by p.jon) 'title')
       ?>  ?=(^ title)
-      =/  group-j=(unit json)  (~(get by p.jon) 'group')
-      =/  group=(unit flag:n)
-        ?~  group-j  ~
-        ?.  ?=([%o *] u.group-j)  ~
-        =/  raw  ((ot ~[['host' (su ;~(pfix sig fed:ag))] ['flagName' so]]) u.group-j)
-        `[-.raw `@tas`+.raw]
-      [%create-notebook (so u.title) group]
+      [%create-notebook (so u.title)]
+        %'create-group-notebook'
+      =/  title=(unit json)  (~(get by p.jon) 'title')
+      ?>  ?=(^ title)
+      =/  group=flag:n
+        =/  raw
+          %.  (need (~(get by p.jon) 'group'))
+          (ot ~[['host' (su ;~(pfix sig fed:ag))] ['flagName' so]])
+        [-.raw `@tas`+.raw]
+      ::  readers: JSON array of role-id strings → (set @tas). absent → ~.
+      =/  readers-j=(unit json)  (~(get by p.jon) 'readers')
+      =/  readers=(set @tas)
+        ?~  readers-j  ~
+        ((as (cu |=(t=@t `@tas``@`t) so)) u.readers-j)
+      [%create-group-notebook (so u.title) group readers]
         %'join'
       :-  %join
       =/  raw  ((ot ~[['ship' (su ;~(pfix sig fed:ag))] ['name' so]]) jon)
