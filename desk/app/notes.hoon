@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'create-group-notebook-readers-v1'
+++  dummy  'leave-on-revoked-resubscribe-v1'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -1099,10 +1099,27 @@
   |=  [grp=flag:n =flag:n who=ship]
   ^-  ?
   ?:  =(our.bowl who)  &
+  (group-can-read-raw grp flag who)
+::  +group-can-read-raw: the bare can-read scry, no self-shortcut. Crashes if
+::  the group isn't synced locally — callers that can't tolerate a crash must
+::  guard with +group-synced first (the host path fails closed via the %gu
+::  guard in +se-can-view; the subscriber path guards in +no-agent).
+++  group-can-read-raw
+  |=  [grp=flag:n =flag:n who=ship]
+  ^-  ?
   =/  gpath=path
     /(scot %p our.bowl)/groups/(scot %da now.bowl)/v2/groups/(scot %p ship.grp)/[name.grp]/channels/can-read/noun
   =/  test=$-([ship nest:n] ?)  .^($-([ship nest:n] ?) %gx gpath)
   (test who [%notes ship.flag name.flag])
+::  +group-synced: is group `grp` present in our local %groups replica? Used
+::  to tell a revocation (group present, can-read now false) apart from a
+::  transient (group not yet replicated here) before dropping a notebook.
+++  group-synced
+  |=  grp=flag:n
+  ^-  ?
+  =/  gpath=path
+    /(scot %p our.bowl)/groups/(scot %da now.bowl)/groups/(scot %p ship.grp)/[name.grp]
+  .^(? %gu gpath)
 ::
 ::  +can-view-flag: check if ship can view a notebook by flag. Group-mode
 ::  notebooks defer to the group's can-read; others use the members map.
@@ -2530,6 +2547,19 @@
         %watch-ack
       ?~  p.sign  no-core
       ?.  ?=(%sub -.net)  no-core
+      ::  group-mode revocation: the host's read gate (+se-can-view) nacks a
+      ::  resubscribe once our access is pulled. If our own local %groups
+      ::  replica agrees we can no longer read, this is a real revocation —
+      ::  leave the notebook (drop the book + report the active-leave so the
+      ::  client drops it) instead of retrying forever. We confirm against the
+      ::  local replica so a transient nack (host's group not yet synced, or
+      ::  the group not yet replicated here) still falls through to the retry.
+      =/  grp=(unit flag:n)  group.notebook-state
+      ?:  ?&  ?=(^ grp)
+              (group-synced u.grp)
+              !(group-can-read-raw u.grp flag our.bowl)
+          ==
+        no-leave
       =.  net  net(init |)
       ::  Schedule a retry. The host (or network) may have transiently
       ::  failed; without this, a single bad watch-ack leaves the
