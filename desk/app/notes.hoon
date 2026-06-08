@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'leave-on-revoked-resubscribe-v1'
+++  dummy  'static-channel-host-marks-v1'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -372,7 +372,7 @@
       se-abet:(se-poke-v1:(se-abed:se-core flag) rid [flag c-notebook.cmd])
     ==
   ::
-      %notes-join
+      %group-channel-join
     ::  channel-host convention: %groups auto-joins this notes nest as the
     ::  group fleet grows. Same-ship poke. We host it or already joined →
     ::  nothing to do; otherwise subscribe to the host like a normal %join.
@@ -385,7 +385,7 @@
     =.  rid-counter  +(rid-counter)
     (join-remote-v1 rid flag)
   ::
-      %notes-leave
+      %group-channel-leave
     ::  channel-host convention: %groups auto-leaves when the channel is
     ::  removed or we lose access. We host it → ignore (group delete drives
     ::  removal); a subscriber → drop the subscription.
@@ -1135,7 +1135,7 @@
 ::  permissions there may have shifted. Re-run can-read for every remote
 ::  subscriber on a hosted notebook bound to that group and %kick any who've
 ::  lost access. Scoped to the one changed group (not all notebooks). Grants
-::  are handled by the %notes-join auto-join, so this only revokes.
+::  are handled by the %group-channel-join auto-join, so this only revokes.
 ++  recheck-group-access
   |=  changed=flag:n
   ^+  cor

@@ -28,14 +28,14 @@
 ::  $nest: channel identifier shared with %groups. Structurally identical
 ::  to groups' nest (kind term + host + name); for %notes channels the
 ::  kind is always %notes and [host name] is the notebook flag. Used by the
-::  %notes-join / %notes-leave channel-host pokes from %groups.
+::  %group-channel-join / %group-channel-leave channel-host pokes from %groups.
 ::
 +$  nest  [kind=@tas host=@p name=@tas]
 ::
-::  channel-host poke payloads. %groups pokes %notes-join / %notes-leave
-::  to auto-join/leave a notes channel as the group fleet changes. join
-::  carries the group flag so the host can record affiliation; leave just
-::  identifies the nest.
+::  channel-host poke payloads. %groups pokes %group-channel-join /
+::  %group-channel-leave to auto-join/leave a notes channel as the group
+::  fleet changes. join carries the group flag so the host can record
+::  affiliation; leave just identifies the nest.
 +$  channel-join   [=nest group=flag]
 +$  channel-leave  [=nest]
 ::
