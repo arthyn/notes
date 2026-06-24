@@ -139,6 +139,19 @@
     `+<.i.caz
   $(caz t.caz)
 ::
+::  +find-poke-vase: vase of the first %pass %agent %poke card whose cage
+::  carries the given mark, if any. cage is +>+>+.c (cf. +has-poke-mark,
+::  which reads its mark via -.); the vase is the cage tail, +..
+++  find-poke-vase
+  |=  [caz=(list card) m=mark]
+  ^-  (unit vase)
+  ?~  caz  ~
+  ?:  ?&  ?=([%pass * %agent * %poke *] i.caz)
+          =(-.+>+>+.i.caz m)
+      ==
+    `+.+>+>+.i.caz
+  $(caz t.caz)
+::
 ::
 ::  +init-zod: init agent as ~zod; discard cards
 ++  init-zod
@@ -310,6 +323,32 @@
   ;<  mbrs=cage  b  (peek-mbrs f)
   (ex-mark mbrs %notes-members)
 ::
+::  ====  test-create-group-notebook-readers  ====
+::  group-mode create registers the channel with %groups via a
+::  group-action-4 poke that carries the group role-readers verbatim —
+::  the privacy fix: readers must not be dropped (else the channel is
+::  created group-wide readable, defeating the group's can-read gate).
+++  test-create-group-notebook-readers
+  %-  eval-mare
+  =/  m  (mare ,~)
+  =*  b  bind:m
+  ^-  form:m
+  ;<  ~  b  init-zod
+  ;<  =bowl:gall  b  get-bowl
+  =/  gf=flag:n  [~zod 'my-group']
+  =/  rdrs=(set @tas)  (silt `(list @tas)`~[%admin %member])
+  ;<  caz=(list card)  b  (poke-a [%create-group-notebook 'Group NB' gf rdrs])
+  |=  s2=state
+  ?.  (has-poke-mark caz %group-action-4)
+    |+['group-mode create did not poke %groups']~
+  =/  van=(unit vase)  (find-poke-vase caz %group-action-4)
+  ?~  van
+    |+['no group-action-4 poke vase found']~
+  =/  act=group-create:n  !<(group-create:n u.van)
+  ?.  =(readers.channel.act rdrs)
+    |+['group channel-add dropped readers']~
+  &+[~ s2]
+::
 ::  ====  test-rename-notebook  ====
 ++  test-rename-notebook
   %-  eval-mare
@@ -435,7 +474,7 @@
   =/  f=flag:n  (nb-flag our.bowl 'NB' 1)
   ;<  *  b  (poke-a [%notebook f [%create-folder ~ 'Orphan?']])
   ;<  sv=vase  b  get-save
-  =/  s=state-13:n  !<(state-13:n sv)
+  =/  s=state-14:n  !<(state-14:n sv)
   |=  s2=state
   ?~  entry=(~(get by books.s) f)  |+['notebook missing']~
   ?~  fld=(~(get by folders.notebook-state.u.entry) 3)
@@ -458,7 +497,7 @@
   =/  f=flag:n  (nb-flag our.bowl 'NB' 1)
   ;<  ~  b  (ex-fail (poke-a [%notebook f [%create-folder `999 'Bad']]))
   ;<  sv=vase  b  get-save
-  =/  s=state-13:n  !<(state-13:n sv)
+  =/  s=state-14:n  !<(state-14:n sv)
   |=  s2=state
   ?~  entry=(~(get by books.s) f)  |+['notebook missing']~
   ?.  =(1 ~(wyt by folders.notebook-state.u.entry))
@@ -952,7 +991,7 @@
   ;<  ~  b  (ex-cards-ne caz)
   ::  invites map is now empty
   ;<  sv=vase  b  get-save
-  =/  s10-after=state-13:n  !<(state-13:n sv)
+  =/  s10-after=state-14:n  !<(state-14:n sv)
   |=  s=state
   ?.  =(~ invites.s10-after)
     |+['expected empty invites map after accept-invite']~
@@ -974,7 +1013,7 @@
   =/  remote-flag=flag:n  [~bus `@tas`'5']
   ;<  *  b  (poke-a [%decline-invite remote-flag])
   ;<  sv=vase  b  get-save
-  =/  s10-after=state-13:n  !<(state-13:n sv)
+  =/  s10-after=state-14:n  !<(state-14:n sv)
   |=  s=state
   ?.  =(~ invites.s10-after)
     |+['expected empty invites map after decline-invite']~
@@ -1011,8 +1050,8 @@
     [%7 bks 2 ~ ~ inv hist]
   ;<  *  b  (do-load notes-agent `!>(s7))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
-  =/  s10=state-13:n  !<(state-13:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%14))
+  =/  s10=state-14:n  !<(state-14:n sv)
   ::  expected slug for [~zod '1'] with title 'S7-NB' nid=1 → 's7-nb-1'
   =/  new-f=flag:n  [~zod (slugify-test 'S7-NB' 1)]
   |=  s=state
@@ -1040,7 +1079,7 @@
   =/  s6=state-6:n  [%6 ~ 0 ~ ~ ~]
   ;<  *  b  (do-load notes-agent `!>(s6))
   ;<  sv=vase  b  get-save
-  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
+  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%14))
 ::
 ::  ====  test-migrate-state-6-preserves-notebook  ====
 ::  state-6 with one notebook migrates and the notebook is reachable.
@@ -1086,7 +1125,7 @@
   =/  s3=state-3:n  [%3 bks 2 ~]
   ;<  *  b  (do-load notes-agent `!>(s3))
   ;<  sv=vase  b  get-save
-  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
+  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%14))
 ::
 ::  ====  test-migrate-state-2-to-10  ====
 ::  state-2 published (bare @ud key) is dropped; published in state-10 is empty.
@@ -1109,7 +1148,7 @@
     [%2 bks 2 (~(put by *(map @ud @t)) 1 '<h1>Old</h1>')]
   ;<  *  b  (do-load notes-agent `!>(s2))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%14))
   ;<  pub=cage  b  (got-peek /x/v0/published)
   ;<  ~  b  (ex-mark pub %notes-published)
   |=  s=state
@@ -1160,8 +1199,8 @@
   =/  s1=state-1:n  [%1 bks 4]
   ;<  *  b  (do-load notes-agent `!>(s1))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
-  =/  s13=state-13:n  !<(state-13:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%14))
+  =/  s13=state-14:n  !<(state-14:n sv)
   =/  new-f=flag:n  [~zod (slugify-test 'S1-NB' 1)]
   |=  s=state
   ::  exactly one notebook in books, under the new slug; old key gone
@@ -1274,8 +1313,8 @@
   =/  s4=state-4:n  [%4 bks 4 ~ ~]
   ;<  *  b  (do-load notes-agent `!>(s4))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
-  =/  s10=state-13:n  !<(state-13:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%14))
+  =/  s10=state-14:n  !<(state-14:n sv)
   =/  new-f=flag:n  [~zod (slugify-test 'S4-NB' 1)]
   =/  entry=[=net:n =notebook-state:n]  (~(got by books.s10) new-f)
   =/  migrated-nb-s=notebook-state:n  notebook-state.entry
@@ -1325,8 +1364,8 @@
   =/  s8=state-8:n  [%8 bks 2 ~ vis-map ~ hist-map]
   ;<  *  b  (do-load notes-agent `!>(s8))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
-  =/  s10=state-13:n  !<(state-13:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%14))
+  =/  s10=state-14:n  !<(state-14:n sv)
   =/  new-f=flag:n  [~zod (slugify-test 'S8-NB' 1)]
   =/  entry=[=net:n =notebook-state:n]  (~(got by books.s10) new-f)
   |=  s=state
@@ -1611,22 +1650,22 @@
     (~(put by *members:n) ~zod %owner)
   =/  flds-local=(map @ud folder:n)
     (~(put by *(map @ud folder:n)) 12 rf-local)
-  =/  nbs-local=notebook-state:n
+  =/  nbs-local=notebook-state-13:n
     [nb-local mbrs-local %private flds-local ~ ~]
   ::  build subscriber notebook (hosted by ~bus)
   =/  nb-remote=notebook:n  [22 'Bar Book' ~bus *@da *@da ~bus]
   =/  rf-remote=folder:n    [23 22 '/' ~ ~bus *@da *@da ~bus]
   =/  flds-remote=(map @ud folder:n)
     (~(put by *(map @ud folder:n)) 23 rf-remote)
-  =/  nbs-remote=notebook-state:n
+  =/  nbs-remote=notebook-state-13:n
     [nb-remote *members:n %private flds-remote ~ ~]
   ::  state-9 books map uses flag-v9
   =/  fl-local=flag-v9:n   [~zod '11']
   =/  fl-remote=flag-v9:n  [~bus '22']
   =/  net-local=net:n   [%pub *log:n]
   =/  net-remote=net:n  [%sub *@da |]
-  =/  bks=(map flag-v9:n [=net:n =notebook-state:n])
-    =/  m0=(map flag-v9:n [=net:n =notebook-state:n])  ~
+  =/  bks=(map flag-v9:n [=net:n notebook-state=notebook-state-13:n])
+    =/  m0=(map flag-v9:n [=net:n notebook-state=notebook-state-13:n])  ~
     =.  m0  (~(put by m0) fl-local [net-local nbs-local])
     =.  m0  (~(put by m0) fl-remote [net-remote nbs-remote])
     m0
@@ -1636,8 +1675,8 @@
   =/  s9=state-9:n  [%9 bks 23 pub-map ~]
   ;<  *  b  (do-load notes-agent `!>(s9))
   ;<  sv=vase  b  get-save
-  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%13))
-  =/  s10=state-13:n  !<(state-13:n sv)
+  ;<  ~  b  (ex-equal !>(;;(@ -.q.sv)) !>(`@`%14))
+  =/  s10=state-14:n  !<(state-14:n sv)
   ::  expected new flags after slugify
   =/  new-fl-local=flag:n   [~zod (slugify-test 'My First' 11)]
   =/  new-fl-remote=flag:n  [~bus (slugify-test 'Bar Book' 22)]
@@ -1672,7 +1711,7 @@
   ;<  caz=(list card)  b  (poke-a-v1 [rid [%create-notebook 'V1 NB']])
   ;<  ~  b  (ex-cards-ne caz)
   ;<  sv=vase  b  get-save
-  =/  s=state-13:n  !<(state-13:n sv)
+  =/  s=state-14:n  !<(state-14:n sv)
   =/  f=flag:n  (nb-flag our.bowl 'V1 NB' 1)
   |=  s2=state
   ?~  req=(~(get by requests.s) rid)
@@ -1700,13 +1739,13 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  sv0=vase  b  get-save
-  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  s0=state-14:n  !<(state-14:n sv0)
   =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
   =/  body=@t  '{"action":{"type":"create-notebook","title":"NoRid"}}'
   ;<  caz=(list card)  b  (http-post-v1 ~[['x-api-key' key]] body)
   =/  f=flag:n  (nb-flag our.bowl 'NoRid' 1)
   ;<  sv=vase  b  get-save
-  =/  s=state-13:n  !<(state-13:n sv)
+  =/  s=state-14:n  !<(state-14:n sv)
   |=  s2=state
   ?~  api-key.s0  |+['no api-key after init']~
   ::  must not have 500'd — header card present, status 200
@@ -1727,14 +1766,14 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  sv0=vase  b  get-save
-  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  s0=state-14:n  !<(state-14:n sv0)
   =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
   =/  body=@t
     '{"requestId":"not-a-valid-uv-!!","action":{"type":"create-notebook","title":"Garbage"}}'
   ;<  caz=(list card)  b  (http-post-v1 ~[['x-api-key' key]] body)
   =/  f=flag:n  (nb-flag our.bowl 'Garbage' 1)
   ;<  sv=vase  b  get-save
-  =/  s=state-13:n  !<(state-13:n sv)
+  =/  s=state-14:n  !<(state-14:n sv)
   |=  s2=state
   ?~  api-key.s0  |+['no api-key after init']~
   =/  st=(unit @ud)  (http-status caz)
@@ -1754,13 +1793,13 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  sv0=vase  b  get-save
-  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  s0=state-14:n  !<(state-14:n sv0)
   =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
   ;<  caz=(list card)  b
     (http-req-v1 %'POST' ~[['x-api-key' key]] '/notes/~/v1/notebooks' '{"title":"RestNB"}')
   =/  f=flag:n  (nb-flag our.bowl 'RestNB' 1)
   ;<  sv=vase  b  get-save
-  =/  s=state-13:n  !<(state-13:n sv)
+  =/  s=state-14:n  !<(state-14:n sv)
   |=  s2=state
   ?~  api-key.s0  |+['no api-key']~
   ?.  =((http-status caz) `200)
@@ -1781,7 +1820,7 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  sv0=vase  b  get-save
-  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  s0=state-14:n  !<(state-14:n sv0)
   =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
   =/  hdr=(list [@t @t])  ~[['x-api-key' key]]
   ::  notebook id=1, root folder id=2
@@ -1791,16 +1830,16 @@
   ::  create note (folder 2) → note id 3
   ;<  *  b  (http-req-v1 %'POST' hdr (cat 3 base '/notes') '{"folder":2,"title":"L","body":"v0"}')
   ;<  svc=vase  b  get-save
-  =/  sc=state-13:n  !<(state-13:n svc)
+  =/  sc=state-14:n  !<(state-14:n svc)
   =/  entry-c  (~(get by books.sc) f)
   ::  update body via PUT (no expectedRevision)
   ;<  *  b  (http-req-v1 %'PUT' hdr (cat 3 base '/notes/3') '{"body":"v1"}')
   ;<  svu=vase  b  get-save
-  =/  su=state-13:n  !<(state-13:n svu)
+  =/  su=state-14:n  !<(state-14:n svu)
   ::  delete via DELETE
   ;<  *  b  (http-req-v1 %'DELETE' hdr (cat 3 base '/notes/3') '')
   ;<  svd=vase  b  get-save
-  =/  sd=state-13:n  !<(state-13:n svd)
+  =/  sd=state-14:n  !<(state-14:n svd)
   |=  s2=state
   ?~  api-key.s0  |+['no api-key']~
   ?~  entry-c  |+['notebook gone after create-note']~
@@ -1835,14 +1874,14 @@
   ;<  *  b  (poke-a [%notebook f [%create-folder `2 'A']])
   ;<  *  b  (poke-a [%notebook f [%create-folder `2 'B']])
   ;<  sv0=vase  b  get-save
-  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  s0=state-14:n  !<(state-14:n sv0)
   =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
   =/  hdr=(list [@t @t])  ~[['x-api-key' key]]
   =/  base=@t  (crip "/notes/~/v1/notebooks/{<`@p`our.bowl>}/{(trip name.f)}")
   ;<  *  b
     (http-req-v1 %'PUT' hdr (cat 3 base '/folders/3') '{"folderName":"A2","parent":4}')
   ;<  svu=vase  b  get-save
-  =/  su=state-13:n  !<(state-13:n svu)
+  =/  su=state-14:n  !<(state-14:n svu)
   |=  s2=state
   ?~  api-key.s0  |+['no api-key']~
   ?~  entry=(~(get by books.su) f)  |+['notebook gone']~
@@ -1870,14 +1909,14 @@
   ;<  *  b  (poke-a [%notebook f [%create-folder `2 'sub']])
   ;<  *  b  (poke-a [%notebook f [%create-note 2 'old' 'b']])
   ;<  sv0=vase  b  get-save
-  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  s0=state-14:n  !<(state-14:n sv0)
   =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
   =/  hdr=(list [@t @t])  ~[['x-api-key' key]]
   =/  base=@t  (crip "/notes/~/v1/notebooks/{<`@p`our.bowl>}/{(trip name.f)}")
   ;<  *  b
     (http-req-v1 %'PUT' hdr (cat 3 base '/notes/4') '{"title":"new","folder":3}')
   ;<  svu=vase  b  get-save
-  =/  su=state-13:n  !<(state-13:n svu)
+  =/  su=state-14:n  !<(state-14:n svu)
   |=  s2=state
   ?~  api-key.s0  |+['no api-key']~
   ?~  entry=(~(get by books.su) f)  |+['notebook gone']~
@@ -1904,14 +1943,14 @@
   ;<  *  b  (poke-a [%notebook f [%create-folder `2 'A']])
   ;<  *  b  (poke-a [%notebook f [%create-folder `3 'leaf']])
   ;<  sv0=vase  b  get-save
-  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  s0=state-14:n  !<(state-14:n sv0)
   =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
   =/  hdr=(list [@t @t])  ~[['x-api-key' key]]
   =/  base=@t  (crip "/notes/~/v1/notebooks/{<`@p`our.bowl>}/{(trip name.f)}")
   ;<  *  b
     (http-req-v1 %'DELETE' hdr (cat 3 base '/folders/3?recursive=true') '')
   ;<  svd=vase  b  get-save
-  =/  sd=state-13:n  !<(state-13:n svd)
+  =/  sd=state-14:n  !<(state-14:n svd)
   |=  s2=state
   ?~  entry=(~(get by books.sd) f)  |+['notebook gone']~
   ?:  (~(has by folders.notebook-state.u.entry) 3)
@@ -1931,7 +1970,7 @@
   =/  rid=request-id:v1:n  0v5.aaaaa
   ;<  *  b  (poke-a-v1 [rid [%regenerate-api-key ~]])
   ;<  sv=vase  b  get-save
-  =/  s=state-13:n  !<(state-13:n sv)
+  =/  s=state-14:n  !<(state-14:n sv)
   |=  s2=state
   ?~  req=(~(get by requests.s) rid)
     |+['expected requests entry']~
@@ -1956,7 +1995,7 @@
   ;<  ~  b  init-zod
   ;<  *  b  (poke-a [%create-notebook 'Readable'])
   ;<  sv=vase  b  get-save
-  =/  s=state-13:n  !<(state-13:n sv)
+  =/  s=state-14:n  !<(state-14:n sv)
   =/  key=@t  ?~(api-key.s '' u.api-key.s)
   ;<  caz=(list card)  b
     (http-get-v1 ~[['x-api-key' key]] '/notes/~/v1/notebooks')
@@ -2010,7 +2049,7 @@
   ;<  *  b  (poke-a [%create-notebook 'AllReads'])
   =/  f=flag:n  (nb-flag our.bowl 'AllReads' 1)
   ;<  sv0=vase  b  get-save
-  =/  s0=state-13:n  !<(state-13:n sv0)
+  =/  s0=state-14:n  !<(state-14:n sv0)
   =/  key=@t  ?~(api-key.s0 '' u.api-key.s0)
   =/  hdr=(list [@t @t])  ~[['x-api-key' key]]
   =/  base=@t  (crip "/notes/~/v1/notebooks/{<`@p`our.bowl>}/{(trip name.f)}")
@@ -2019,7 +2058,7 @@
   ::  POST sub-folder (parent 2) → id 4  [covers POST .../folders]
   ;<  *  b  (http-req-v1 %'POST' hdr (cat 3 base '/folders') '{"parent":2,"folderName":"sub"}')
   ;<  svw=vase  b  get-save
-  =/  sw=state-13:n  !<(state-13:n svw)
+  =/  sw=state-14:n  !<(state-14:n svw)
   ::  GET every read shape
   ;<  ~  b  (ex-get-200 hdr '/notes/~/v1/notebooks')
   ;<  ~  b  (ex-get-200 hdr base)
@@ -2052,7 +2091,7 @@
     (http-req-v1 %'POST' ~ '/notes/~/v1/notebooks' '{"title":"NoAuthNB"}')
   =/  f=flag:n  (nb-flag our.bowl 'NoAuthNB' 1)
   ;<  sv=vase  b  get-save
-  =/  s=state-13:n  !<(state-13:n sv)
+  =/  s=state-14:n  !<(state-14:n sv)
   |=  s2=state
   ?.  =((http-status caz) `401)
     |+~[(crip "expected 401 for unauth write, got {<(http-status caz)>}")]
@@ -2144,7 +2183,7 @@
   ^-  form:m
   ;<  ~  b  init-zod
   ;<  sv=vase  b  get-save
-  =/  s=state-13:n  !<(state-13:n sv)
+  =/  s=state-14:n  !<(state-14:n sv)
   |=  s2=state
   ?~  api-key.s
     |+['expected api-key generated on init']~
@@ -2159,13 +2198,13 @@
   ^-  form:m
   ;<  ~  b  init-zod
   ;<  sv1=vase  b  get-save
-  =/  s1=state-13:n  !<(state-13:n sv1)
+  =/  s1=state-14:n  !<(state-14:n sv1)
   =/  old-key=(unit @t)  api-key.s1
   ::  bump eny so the new key differs deterministically
   ;<  ~  b  (jab-bowl |=(=bowl bowl(eny ^~((shaz 'regen-test')))))
   ;<  *  b  (poke-a-v1 [0v1.aaaaa [%regenerate-api-key ~]])
   ;<  sv2=vase  b  get-save
-  =/  s2=state-13:n  !<(state-13:n sv2)
+  =/  s2=state-14:n  !<(state-14:n sv2)
   |=  s3=state
   ?~  old-key
     |+['no api-key after init']~
@@ -2189,7 +2228,7 @@
   ;<  caz=(list card)  b
     (poke-a-v1 [0v3.ccccc [%register-mcp `'http://localhost:8080']])
   ;<  sv=vase  b  get-save
-  =/  s=state-13:n  !<(state-13:n sv)
+  =/  s=state-14:n  !<(state-14:n sv)
   |=  s2=state
   ?:  =(0 (lent (skim caz |=(c=card ?=([%pass * %agent * %poke %mcp-proxy-action *] c)))))
     |+['no mcp-proxy-action poke emitted']~
@@ -2206,7 +2245,7 @@
   ;<  ~  b  init-zod
   ;<  *  b  (poke-a-v1 [0v1.aaaaa [%clear-api-key ~]])
   ;<  sv=vase  b  get-save
-  =/  s=state-13:n  !<(state-13:n sv)
+  =/  s=state-14:n  !<(state-14:n sv)
   |=  s2=state
   ?^  api-key.s
     |+['expected api-key cleared']~
@@ -2223,14 +2262,14 @@
   ;<  ~  b  init-zod
   ;<  =bowl:gall  b  get-bowl
   ;<  sv1=vase  b  get-save
-  =/  s1=state-13:n  !<(state-13:n sv1)
+  =/  s1=state-14:n  !<(state-14:n sv1)
   =/  maybe-key=(unit @t)  api-key.s1
   =/  key=@t  ?~(maybe-key '' u.maybe-key)
   =/  body=@t  '{"requestId":"0v9.aaaaa","action":{"type":"create-notebook","title":"VKey"}}'
   ;<  caz=(list card)  b  (http-post-v1 ~[['x-api-key' key]] body)
   =/  f=flag:n  (nb-flag our.bowl 'VKey' 1)
   ;<  sv2=vase  b  get-save
-  =/  s2=state-13:n  !<(state-13:n sv2)
+  =/  s2=state-14:n  !<(state-14:n sv2)
   |=  s3=state
   ?~  maybe-key
     |+['no api-key after init']~
@@ -2256,7 +2295,7 @@
   ;<  *  b  (http-post-v1 ~[['x-api-key' 'definitely-not-the-key']] body)
   =/  f=flag:n  (nb-flag our.bowl 'WrongKey' 1)
   ;<  sv=vase  b  get-save
-  =/  s=state-13:n  !<(state-13:n sv)
+  =/  s=state-14:n  !<(state-14:n sv)
   |=  s2=state
   ?:  (~(has by books.s) f)
     |+['unauthorized request created a notebook']~
@@ -2296,7 +2335,7 @@
   ;<  ~  b  init-zod
   ;<  *  b  (poke-a-v1 [0v2.aaaaa.bbbbb [%create-notebook 'KeyPoll']])
   ;<  sv=vase  b  get-save
-  =/  s=state-13:n  !<(state-13:n sv)
+  =/  s=state-14:n  !<(state-14:n sv)
   =/  maybe-key=(unit @t)  api-key.s
   =/  key=@t  ?~(maybe-key '' u.maybe-key)
   ;<  caz=(list card)  b
@@ -2329,7 +2368,7 @@
   =/  remote-flag=flag:n  [~bus %ghost-test]
   ;<  caz=(list card)  b  (poke-a [%join remote-flag])
   ;<  sv1=vase  b  get-save
-  =/  s1=state-13:n  !<(state-13:n sv1)
+  =/  s1=state-14:n  !<(state-14:n sv1)
   =/  pre-has=?  (~(has by books.s1) remote-flag)
   =/  poke-wire=(unit wire)  (find-poke-wire caz)
   ::  Crash the test if no poke wire was emitted — that itself would be
@@ -2340,7 +2379,7 @@
     [%poke-ack `~[leaf+"host rejected"]]
   ;<  *  b  (do-agent u.poke-wire [~bus %notes] nack-sign)
   ;<  sv2=vase  b  get-save
-  =/  s2=state-13:n  !<(state-13:n sv2)
+  =/  s2=state-14:n  !<(state-14:n sv2)
   |=  s3=state
   ?.  pre-has
     |+['placeholder missing after join initiated']~
@@ -2359,7 +2398,7 @@
   |=  s=state
   =/  nb=notebook:n
     [1 'Test' ~zod ~1970.1.1 ~1970.1.1 ~zod]
-  =/  nb-s=notebook-state:n  [nb ~ %private ~ ~ ~]
+  =/  nb-s=notebook-state:n  [nb ~ %private ~ ~ ~ ~]
   =/  res=response:n  [%snapshot [~zod %foo] %public nb-s]
   =/  jon=json  (response:enjs:notes-json res)
   ?.  ?=([%o *] jon)

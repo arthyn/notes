@@ -8,7 +8,7 @@
 ::
 |%
 +$  card  card:agent:gall
-+$  current-state  state-13:n
++$  current-state  state-14:n
 --
 ::
 =|  current-state
@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'normalize-src-on-http-clean'
+++  dummy  'freeze-requests-13-snapshot-v1'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -94,6 +94,9 @@
   %-  emil
   :~  [%pass /eyre/notes %arvo %e %connect [~ /notes] %notes]
       [%pass /cleanup/requests %arvo %b %wait (add now.bowl ~m5)]
+      ::  watch %groups so we can revoke read access on group-mode notebooks
+      ::  when the fleet/roles change (see +recheck-group-access).
+      [%pass /groups %agent [our.bowl %groups] %watch /v1/groups]
   ==
 ::
 ::  +load: migrate old state to current state-10 via linear per-step chain.
@@ -115,19 +118,25 @@
   =?  old  ?=(%10 -.old)  (state-10-to-11 old)
   =?  old  ?=(%11 -.old)  (state-11-to-12 old)
   =?  old  ?=(%12 -.old)  (state-12-to-13 old)
-  ?>  ?=(%13 -.old)
+  =?  old  ?=(%13 -.old)  (state-13-to-14 old)
+  ?>  ?=(%14 -.old)
   =.  state  old
   ::  ships migrating from state-11 land here with api-key=~; mint one
   ::  so the bypass is usable out of the box. Operators can rotate or
   ::  clear afterward.
   =?  api-key.state  ?=(~ api-key.state)  `(scot %uv eny.bowl)
+  ::  (re)establish the %groups watch for revocation. idempotent: skip if a
+  ::  subscription on this wire already exists (e.g. fresh installs from +init).
+  =?  cor  !(~(has by wex.bowl) [/groups our.bowl %groups])
+    (emit [%pass /groups %agent [our.bowl %groups] %watch /v1/groups])
   ::  start request cleanup timer (idempotent: stacking timers is fine,
   ::  each cleanup pass is a no-op on an empty/clean requests map)
   %-  emit
   [%pass /cleanup/requests %arvo %b %wait (add now.bowl ~m5)]
   ::
   +$  any-state
-    $%  state-13:n
+    $%  state-14:n
+        state-13:n
         state-12:n
         state-11:n
         state-10:n
@@ -213,7 +222,7 @@
     ~>  %spin.['state-8-to-9']
     |=  s=state-8:n
     ^-  state-9:n
-    =/  new-books=(map flag-v9:n [=net:n =notebook-state:n])
+    =/  new-books=(map flag-v9:n [=net:n notebook-state=notebook-state-13:n])
       %-  ~(urn by books.s)
       |=  [f=flag-v9:n [=net:n old-nbs=notebook-state-v8:n]]
       =/  nb-hist=(map @ud (list note-revision:n))
@@ -222,7 +231,7 @@
         |=  [[kf=flag-v9:n nid=@ud] v=(list note-revision:n)]
         ?.  =(kf f)  ~
         `[nid v]
-      =/  new-nbs=notebook-state:n
+      =/  new-nbs=notebook-state-13:n
         :*  notebook.old-nbs
             notebook-members.old-nbs
             (fall (~(get by visibilities.s) f) %private)
@@ -240,13 +249,13 @@
     =/  xlat=(map flag-v9:n flag:n)
       %-  malt
       %+  turn  ~(tap by books.s)
-      |=  [f=flag-v9:n [* =notebook-state:n]]
+      |=  [f=flag-v9:n [* notebook-state=notebook-state-13:n]]
       =/  new-name=@tas  (slugify [title id]:notebook.notebook-state)
       [f [ship.f new-name]]
-    =/  new-books=(map flag:n [=net:n =notebook-state:n])
+    =/  new-books=(map flag:n [=net:n notebook-state=notebook-state-13:n])
       %-  malt
       %+  turn  ~(tap by books.s)
-      |=  [f=flag-v9:n entry=[=net:n =notebook-state:n]]
+      |=  [f=flag-v9:n entry=[=net:n notebook-state=notebook-state-13:n]]
       =/  =flag:n  (~(got by xlat) f)
       [flag entry]
     =/  new-pub=(map [=flag:n note-id=@ud] @t)
@@ -275,11 +284,52 @@
     ^-  state-12:n
     [%12 books.s next-id.s published.s invites.s requests.s ~]
   ::
+  ::  state-12-to-13: adds rid-counter (0). books pass through unchanged
+  ::  (state-13 still uses the pre-group notebook-state-13).
   ++  state-12-to-13
     ~>  %spin.['state-12-to-13']
     |=  s=state-12:n
     ^-  state-13:n
     [%13 books.s next-id.s published.s invites.s requests.s api-key.s 0]
+  ::
+  ::  state-13-to-14: widen each notebook-state with group=~ (pre-existing
+  ::  notebooks have no group affiliation; group is set only via
+  ::  create-in-group). The on-disk log is untouched (it embeds $notebook,
+  ::  not $notebook-state). notebook-state appears in two places: the books
+  ::  map AND any stored %snapshot inside the requests map (r-notes), so both
+  ::  must be widened — state-13 froze both via notebook-state-13 / requests-13.
+  ++  state-13-to-14
+    ~>  %spin.['state-13-to-14']
+    |=  s=state-13:n
+    ^-  state-14:n
+    =/  widen-nbs
+      |=  nbs=notebook-state-13:n
+      ^-  notebook-state:n
+      :*  notebook.nbs  members.nbs  visibility.nbs
+          folders.nbs  notes.nbs  history.nbs  ~
+      ==
+    =/  new-books=(map flag:n [=net:n =notebook-state:n])
+      %-  ~(run by books.s)
+      |=  [=net:n nbs=notebook-state-13:n]
+      [net (widen-nbs nbs)]
+    =/  new-requests=requests:v1:n
+      %-  ~(run by requests.s)
+      |=  req=incoming-request-13:v1:n
+      ^-  incoming-request:v1:n
+      :*  id.req
+          http-id.req
+          poke-status.req
+          ::  widen any stored %snapshot's notebook-state with group=~
+          %+  bind  result.req
+          |=  rb=response-body-13:v1:n
+          ^-  response-body:v1:n
+          ?.  ?=([%ok %snapshot *] rb)  rb
+          =/  snap  r-notes.rb
+          [%ok %snapshot flag.snap visibility.snap (widen-nbs notebook-state.snap)]
+          final-at.req
+          fetched.req
+      ==
+    [%14 new-books next-id.s published.s invites.s new-requests api-key.s rid-counter.s]
   --
 ::
 ++  poke
@@ -342,6 +392,32 @@
       ?>  (~(has by books) flag)
       se-abet:(se-poke-v1:(se-abed:se-core flag) rid [flag c-notebook.cmd])
     ==
+  ::
+      %group-channel-join
+    ::  channel-host convention: %groups auto-joins this notes nest as the
+    ::  group fleet grows. Same-ship poke. We host it or already joined →
+    ::  nothing to do; otherwise subscribe to the host like a normal %join.
+    ?>  =(our.bowl src.bowl)
+    =+  !<(j=channel-join:n vase)
+    =/  =flag:n  [host.nest.j name.nest.j]
+    ?:  =(our.bowl ship.flag)  cor
+    ?:  (~(has by books) flag)  cor
+    =/  rid=request-id:v1:n  `@uv`(mix eny.bowl rid-counter)
+    =.  rid-counter  +(rid-counter)
+    (join-remote-v1 rid flag)
+  ::
+      %group-channel-leave
+    ::  channel-host convention: %groups auto-leaves when the channel is
+    ::  removed or we lose access. We host it → ignore (group delete drives
+    ::  removal); a subscriber → drop the subscription.
+    ?>  =(our.bowl src.bowl)
+    =+  !<(l=channel-leave:n vase)
+    =/  =flag:n  [host.nest.l name.nest.l]
+    ?:  =(our.bowl ship.flag)  cor
+    ?.  (~(has by books) flag)  cor
+    =/  rid=request-id:v1:n  `@uv`(mix eny.bowl rid-counter)
+    =.  rid-counter  +(rid-counter)
+    (leave-remote-v1 rid flag)
   ==
   ::
   ::  no |^ arms remain — the invite/join helpers used to live here but
@@ -577,6 +653,39 @@
   ?.  ?=([%n *] u.v)  ~
   (rush p.u.v dem)
 ::
+::  +field-flag: read a flag object {host, flagName} from a JSON body field.
+::  ~ if absent or malformed (so callers can treat it as optional).
+++  field-flag
+  |=  [obj=(map @t json) key=@t]
+  ^-  (unit flag:n)
+  ?~  v=(~(get by obj) key)  ~
+  ?.  ?=([%o *] u.v)  ~
+  =/  host-j  (~(get by p.u.v) 'host')
+  =/  name-j  (~(get by p.u.v) 'flagName')
+  ?~  host-j  ~
+  ?~  name-j  ~
+  ?.  ?=([%s *] u.host-j)  ~
+  ?.  ?=([%s *] u.name-j)  ~
+  ?~  host=(slaw %p p.u.host-j)  ~
+  `[u.host `@tas`p.u.name-j]
+::
+::  +field-readers: read a JSON array of role-id strings into (set @tas).
+::  absent / malformed / non-string elements → dropped; absent field or
+::  empty array → empty set (open channel). role-ids are reinterpreted as
+::  terms (they always are valid terms on the wire).
+++  field-readers
+  |=  [obj=(map @t json) key=@t]
+  ^-  (set @tas)
+  ?~  v=(~(get by obj) key)  ~
+  ?.  ?=([%a *] u.v)  ~
+  %-  ~(gas in *(set @tas))
+  %+  murn  p.u.v
+  |=  j=json
+  ^-  (unit @tas)
+  ?.  ?=([%s *] j)  ~
+  =/  r=@tas  `@tas``@`p.j
+  `r
+::
 ::  +build-write-action: translate a REST write (method + path segments +
 ::  json body) into an a-notes action, or ~ if the shape isn't recognized
 ::  / required fields are missing. These are the "first-class" convenience
@@ -592,7 +701,11 @@
   ^-  (unit a-notes:n)
   ?:  &(=(%'POST' method) ?=([%notebooks ~] pax))
     ?~  title=(field-cord obj 'title')  ~
-    `[%create-notebook u.title]
+    ::  group present → born-in-group (defers reads to the group, carries
+    ::  the group role-readers); else a plain solo notebook.
+    ?~  grp=(field-flag obj 'group')
+      `[%create-notebook u.title]
+    `[%create-group-notebook u.title u.grp (field-readers obj 'readers')]
   ?.  ?=([%notebooks @ @ *] pax)  ~
   ?~  host=(slaw %p i.t.pax)  ~
   =/  =flag:n  [u.host `@tas`i.t.t.pax]
@@ -773,6 +886,11 @@
       %-  pairs:enjs:format
       ~[['installed' b+mcp-proxy-installed]]
     ``json+!>(jon)
+  ::
+      [%u %joined host=@ name=@ ~]
+    =/  =flag:n  [(slav %p host.pole) `@tas`name.pole]
+    ``loob+!>((~(has by books) flag))
+  ::
     ::  /x/v0/<kind>/<ship>/<name>[/<rest>] — delegate to no-peek
       [%x %v0 kind=@ ship=@ name=@ rest=*]
     =/  =flag:n  [(slav %p ship.pole) `@tas`name.pole]
@@ -784,6 +902,21 @@
   |=  [=(pole knot) =sign:agent:gall]
   ^+  cor
   ?+  pole  ~|(bad-agent-wire+pole !!)
+      ::  %groups revocation watch. We avoid a groups-sur dependency by
+      ::  extracting just the changed group's flag from the r-groups fact
+      ::  ([flag r-group] — flag is the head) and rechecking only the
+      ::  subscribers of notebooks bound to that group.
+      [%groups ~]
+    ?+  -.sign  cor
+        %watch-ack  cor
+        %kick
+      (emit [%pass /groups %agent [our.bowl %groups] %watch /v1/groups])
+        %fact
+      ::  r-groups fact is [flag r-group]; decode just the flag head.
+      =+  !<([=flag:n *] q.cage.sign)
+      (recheck-group-access flag)
+    ==
+  ::
       [%notes %sub ship=@ name=@ ~]
     =/  =flag:n
       [(slav %p ship.pole) `@tas`name.pole]
@@ -807,6 +940,21 @@
       [%notes %invite who=@ ship=@ name=@ ~]
     ?+  -.sign  cor
         %poke-ack  cor
+    ==
+  ::
+      [%notes ship=@ name=@ %create ~]
+    ?+  -.sign  cor
+        %poke-ack
+      ?~  p.sign  cor
+      ((slog leaf+"notes: adding channel to %groups failed" u.p.sign) cor)
+    ==
+  ::
+      ::  ack from +no-report-active's %groups active-channels poke
+      [%report-active ~]
+    ?+  -.sign  cor
+        %poke-ack
+      ?~  p.sign  cor
+      ((slog leaf+"notes: active-channel report to %groups failed" u.p.sign) cor)
     ==
   ::
       [%notes %leave ship=@ name=@ ~]
@@ -962,15 +1110,69 @@
   ?~  qi  url
   (scag u.qi url)
 ::
-::  +can-view-flag: check if ship can view a notebook by flag
+::  +group-can-read: ask our LOCAL %groups replica whether `who` may read the
+::  [%notes flag] nest in group `grp`. Mirrors +can-read in tlon's
+::  channel-utils: scry the bulk `can-read` GATE (%gx, not %gu — %groups only
+::  serves %x peeks) and apply it to [ship nest]. Relies on the group being
+::  present locally (we host the notebook, so we're a member); a missing group
+::  crashes the peek, which fails an se-watch closed.
+++  group-can-read
+  |=  [grp=flag:n =flag:n who=ship]
+  ^-  ?
+  ?:  =(our.bowl who)  &
+  (group-can-read-raw grp flag who)
+::  +group-can-read-raw: the bare can-read scry, no self-shortcut. Crashes if
+::  the group isn't synced locally — callers that can't tolerate a crash must
+::  guard with +group-synced first (the host path fails closed via the %gu
+::  guard in +se-can-view; the subscriber path guards in +no-agent).
+++  group-can-read-raw
+  |=  [grp=flag:n =flag:n who=ship]
+  ^-  ?
+  =/  gpath=path
+    /(scot %p our.bowl)/groups/(scot %da now.bowl)/v2/groups/(scot %p ship.grp)/[name.grp]/channels/can-read/noun
+  =/  test=$-([ship nest:n] ?)  .^($-([ship nest:n] ?) %gx gpath)
+  (test who [%notes ship.flag name.flag])
+::  +group-synced: is group `grp` present in our local %groups replica? Used
+::  to tell a revocation (group present, can-read now false) apart from a
+::  transient (group not yet replicated here) before dropping a notebook.
+++  group-synced
+  |=  grp=flag:n
+  ^-  ?
+  =/  gpath=path
+    /(scot %p our.bowl)/groups/(scot %da now.bowl)/groups/(scot %p ship.grp)/[name.grp]
+  .^(? %gu gpath)
+::
+::  +can-view-flag: check if ship can view a notebook by flag. Group-mode
+::  notebooks defer to the group's can-read; others use the members map.
 ++  can-view-flag
   |=  [=flag:n who=ship]
   ^-  ?
   ?~  entry=(get-book flag)  |
-  =/  mbrs=members:n
-    members.notebook-state.u.entry
-  ?~  (~(get by mbrs) who)  |
-  &
+  ?~  grp=group.notebook-state.u.entry
+    !=(~ (~(get by members.notebook-state.u.entry) who))
+  (group-can-read u.grp flag who)
+::
+::  +recheck-group-access: a fact arrived for group `changed`, so read
+::  permissions there may have shifted. Re-run can-read for every remote
+::  subscriber on a hosted notebook bound to that group and %kick any who've
+::  lost access. Scoped to the one changed group (not all notebooks). Grants
+::  are handled by the %group-channel-join auto-join, so this only revokes.
+++  recheck-group-access
+  |=  changed=flag:n
+  ^+  cor
+  =/  kicks=(list card)
+    %+  murn  ~(val by sup.bowl)
+    |=  [who=ship pax=path]
+    ^-  (unit card)
+    ?.  ?=([%v0 %notes @ @ %updates ~] pax)  ~
+    =/  =flag:n  [(slav %p i.t.t.pax) `@tas`i.t.t.t.pax]
+    ?.  =(our.bowl ship.flag)  ~
+    ?~  entry=(~(get by books) flag)  ~
+    ?~  grp=group.notebook-state.u.entry  ~
+    ?.  =(u.grp changed)  ~
+    ?:  (can-view-flag flag who)  ~
+    `[%give %kick ~[pax] `who]
+  (emil kicks)
 ::
 ::  +find-flag-by-nid: find the flag for a notebook by numeric notebook id
 ++  find-flag-by-nid
@@ -1153,7 +1355,7 @@
   =/  =notebook:n
     [0 '' ship.flag *@da *@da ship.flag]
   =/  placeholder-nb-state=notebook-state:n
-    [notebook ~ %private ~ ~ ~]
+    [notebook ~ %private ~ ~ ~ ~]
   =.  books
     (~(put by books) flag [placeholder-net placeholder-nb-state])
   =/  cmd1=command:v1:n  [rid [%notebook flag [%member-join ~]]]
@@ -1167,6 +1369,8 @@
   |=  [rid=request-id:v1:n =flag:n]
   ^+  cor
   ?>  (~(has by books) flag)
+  ::  no-leave reports the leave to %groups and drops the local book (incl.
+  ::  its group) via the gone flag.
   =.  cor  no-abet:no-leave:(no-abed:no-core flag)
   =/  cmd1=command:v1:n  [rid [%notebook flag [%member-leave ~]]]
   (send-v1-request rid ship.flag flag cmd1)
@@ -1317,10 +1521,19 @@
     ::  - asynchronous: fires a cross-ship v1 request whose terminal
     ::    response-update arrives later via no-agent-req-watch
     ?-  -.a-act
-        %create-notebook
+        ?(%create-notebook %create-group-notebook)
       ::  return the new notebook's summary so the caller learns the
-      ::  slugified flag + metadata without a follow-up scry.
-      =/  core  (se-create-notebook:(se-init:se-core a-act) a-act)
+      ::  slugified flag + metadata without a follow-up scry. group-mode
+      ::  carries the affiliation + group role-readers; solo passes ~ ~.
+      ::  the two variants put `title` at different axes, so extract every
+      ::  field inside one ?= narrow rather than across the fork.
+      =/  args=[title=@t group=(unit flag:n) readers=(set @tas)]
+        ?:  ?=(%create-group-notebook -.a-act)
+          [title.a-act `group.a-act readers.a-act]
+        [title.a-act ~ ~]
+      =/  core
+        %.  args
+        se-create-notebook:(se-init:se-core title.args)
       =.  cor  se-abet:core
       =/  =notebook-summary:n
         :+  flag.core  notebook.notebook-state.core
@@ -1393,11 +1606,10 @@
   ::
   ::  +se-init: initialize for a brand-new notebook
   ++  se-init
-    |=  act=action:n
+    |=  title=@t
     ^+  se-core
-    ?>  ?=(%create-notebook -.act)
     =/  nid=@ud  +(next-id)
-    =/  =flag:n  [our.bowl (slugify title.act nid)]
+    =/  =flag:n  [our.bowl (slugify title nid)]
     se-core(flag flag)
   ::
   ::  +se-abed: load from state for a given flag
@@ -1497,11 +1709,18 @@
     ?>  (se-can-view src.bowl)
     (se-watch-sub src.bowl)
   ::
+  ::  +se-can-view: read gate. Group-mode notebooks defer to the group's
+  ::  can-read for the [%notes flag] nest (scried from our LOCAL %groups
+  ::  replica — we host the notebook, so we're a member with the group
+  ::  synced). Guarded with %gu so a not-yet-synced group fails closed
+  ::  rather than crashing the event. Non-group notebooks use the legacy
+  ::  members-map check.
   ++  se-can-view
     |=  who=ship
     ^-  ?
-    ?~  (~(get by members.notebook-state) who)  |
-    &
+    ?~  grp=group.notebook-state
+      !=(~ (~(get by members.notebook-state) who))
+    (group-can-read u.grp flag who)
   ::
   ++  se-can-edit
     |=  who=ship
@@ -1525,17 +1744,16 @@
     ^-  visibility:n
     visibility.notebook-state
   ::
-  ::  +se-create-notebook: handle %create-notebook action
+  ::  +se-create-notebook: create a notebook (solo or group-mode)
   ::  nid is +(next-id) — same value se-init used to build the flag slug;
   ::  state has not been modified between se-init and this call.
   ++  se-create-notebook
-    |=  act=action:n
+    |=  [title=@t group=(unit flag:n) readers=(set @tas)]
     ^+  se-core
-    ?>  ?=(%create-notebook -.act)
     =/  nid=@ud  +(next-id)
     =/  rfid=@ud  +(nid)
     =/  =notebook:n
-      [nid title.act [our now now our]:bowl]
+      [nid title our.bowl now.bowl now.bowl our.bowl]
     =/  nb-state=notebook-state:n
       :*  notebook
           (~(put by *members:n) our.bowl %owner)
@@ -1543,11 +1761,23 @@
           (~(put by *(map @ud folder:n)) rfid [rfid nid '/' ~ [our now now our]:bowl])
           ~
           ~
+          group
       ==
     =.  next-id  rfid
     =.  notebook-state  nb-state
     =.  books
       (~(put by books) flag [[%pub *log:n] notebook-state])
+    ::  group-mode: register the channel listing with %groups, carrying the
+    ::  group role-readers so the group's can-read gates the notebook.
+    =?  se-core  ?=(^ group)
+      =/  channel=group-channel:n
+        :-  [title '' '' '']
+        [now.bowl %default readers |]
+      =/  action=group-create:n
+        [%group u.group %channel [%notes flag] %add channel]
+      =/  =dock    [our.bowl %groups]
+      =/  =wire    /notes/(scot %p ship.flag)/[name.flag]/create
+      (emit %pass wire %agent dock %poke group-action-4+!>(action))
     =.  se-core  (emit notebooks-changed-card)
     (se-update [%created notebook %private])
   ::
@@ -1594,7 +1824,8 @@
       %+  skip  ~(tap by published)
       |=  [k=[=flag:n note-id=@ud] v=@t]
       =(flag.k flag)
-    ::  history and visibility live in notebook-state, deleted via gone flag
+    ::  group affiliation, history and visibility live in notebook-state,
+    ::  deleted with the book via the gone flag
     =.  se-core  (se-update [%deleted ~])
     se-core(gone &)
   ::
@@ -1622,11 +1853,18 @@
     |=  cmd=c-cmd:n
     ^+  se-core
     ?>  ?=(%member-join -.c-notebook.cmd)
-    ::  private notebooks reject joins from non-members
-    ?:  ?&  =(%private se-visibility)
-            !(se-can-view src.bowl)
-        ==
-      ~|(notebook-private+flag !!)
+    ::  Access check — one of three cases:
+    ::    non-group private: src must already be in the members map
+    ::    non-group public:  anyone is welcome — no check needed
+    ::    group-mode:        group's can-read is the sole authority
+    ::  Either way, record the joiner as %editor so se-can-edit lets them write.
+    ?>  ?~  grp=group.notebook-state
+          ::  non-group: public ok; private requires prior membership
+          ?|  =(%public se-visibility)
+              !=(~ (~(get by members.notebook-state) src.bowl))
+          ==
+        ::  group-mode: group's can-read is the sole authority
+        (group-can-read u.grp flag src.bowl)
     =.  members.notebook-state
       (~(put by members.notebook-state) src.bowl %editor)
     (se-update [%member-joined src.bowl %editor])
@@ -2080,6 +2318,7 @@
   |_  [=flag:n =net:n =notebook-state:n gone=_|]
   ++  no-core  .
   ++  emit  |=(=card no-core(cor cor(cards [card cards])))
+  ++  emil  |=(caz=(list card) no-core(cor cor(cards (welp (flop caz) cards))))
   ++  give  |=(=gift:agent:gall (emit %give gift))
   ::
   ::  +no-req-watch-path: path the subscriber subscribes to on the host
@@ -2251,18 +2490,39 @@
     ?.  ?&(?=(%sub -.net) !init.net)  no-core
     no-core(gone &)
   ::
+  ::  +no-report-active: card that tells our local %groups the channel-host
+  ::  active state of this notes nest (joined & / left |), or ~ if this
+  ::  notebook isn't group-affiliated. %groups updates active-channels for the
+  ::  reported group. The group lives on notebook-state (set on the host at
+  ::  create, learned by subscribers from the %snapshot).
+  ++  no-report-active
+    |=  joined=?
+    ^-  (unit card)
+    ?~  grp=group.notebook-state  ~
+    =/  =nest:n  [%notes ship.flag name.flag]
+    :-  ~
+    :*  %pass  /report-active  %agent  [our.bowl %groups]
+        %poke  group-channel-active+!>([u.grp nest joined])
+    ==
+  ::
+  ::  +no-start-watch: subscribe to the host's update stream. The active-channels
+  ::  report happens in +no-response on the %snapshot (once we know the group);
+  ::  here we only watch.
   ++  no-start-watch
-    ^+  no-core
-    ?>  ?=(%sub -.net)
-    %-  emit
-    [%pass no-sub-wire %agent [ship.flag %notes] %watch no-sub-path]
+    ?:  =(%pub -.net)
+      %-  (slog leaf+"no-start-watch: host, skipping watch" ~)
+      no-core
+    (emit [%pass no-sub-wire %agent [ship.flag %notes] %watch no-sub-path])
   ::
   ++  no-leave
-    ^+  no-core
-    ?>  ?=(%sub -.net)
+    ?:  =(%pub -.net)
+      %-  (slog leaf+"no-leave: host, skipping leave" ~)
+      no-core
     =.  gone  &
-    %-  emit
-    [%pass no-sub-wire %agent [ship.flag %notes] %leave ~]
+    %-  emil
+    %+  weld  (drop (no-report-active |))
+    ^-  (list card)
+    [%pass no-sub-wire %agent [ship.flag %notes] %leave ~]~
   ::
   ::  +no-publish: cache HTML for a note in this notebook so this ship's
   ::  /notes/pub/<flag>/<note-id> serves it. Self-check is enforced at the
@@ -2308,6 +2568,19 @@
         %watch-ack
       ?~  p.sign  no-core
       ?.  ?=(%sub -.net)  no-core
+      ::  group-mode revocation: the host's read gate (+se-can-view) nacks a
+      ::  resubscribe once our access is pulled. If our own local %groups
+      ::  replica agrees we can no longer read, this is a real revocation —
+      ::  leave the notebook (drop the book + report the active-leave so the
+      ::  client drops it) instead of retrying forever. We confirm against the
+      ::  local replica so a transient nack (host's group not yet synced, or
+      ::  the group not yet replicated here) still falls through to the retry.
+      =/  grp=(unit flag:n)  group.notebook-state
+      ?:  ?&  ?=(^ grp)
+              (group-synced u.grp)
+              !(group-can-read-raw u.grp flag our.bowl)
+          ==
+        no-leave
       =.  net  net(init |)
       ::  Schedule a retry. The host (or network) may have transiently
       ::  failed; without this, a single bad watch-ack leaves the
@@ -2329,8 +2602,14 @@
       ?>  ?=(%sub -.net)
       =.  net  net(init &)
       =.  cards  [notebooks-changed-card cards]
-      %-  give
-      [%fact [/v0/notes/(scot %p ship.flag)/[name.flag]/stream]~ notes-response+!>(response)]
+      ::  the snapshot carries the host's notebook-state, so group is now
+      ::  known — report active to %groups (no-op if not a group channel).
+      =/  stream=card
+        :*  %give  %fact  [/v0/notes/(scot %p ship.flag)/[name.flag]/stream]~
+            notes-response+!>(response)
+        ==
+      =/  rep=(unit card)  (no-report-active &)
+      (emil ?~(rep ~[stream] ~[stream u.rep]))
     ::
         %update
       =.  no-core  (no-apply-update flag.response update.response)
