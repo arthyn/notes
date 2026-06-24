@@ -79,7 +79,7 @@
 ::  helper core
 ::
 |_  [=bowl:gall cards=(list card)]
-++  dummy  'static-channel-host-marks-v1'
+++  dummy  'freeze-requests-13-snapshot-v1'
 ++  abet  [(flop cards) state]
 ++  cor   .
 ++  emit  |=(=card cor(cards [card cards]))
@@ -295,20 +295,41 @@
   ::  state-13-to-14: widen each notebook-state with group=~ (pre-existing
   ::  notebooks have no group affiliation; group is set only via
   ::  create-in-group). The on-disk log is untouched (it embeds $notebook,
-  ::  not $notebook-state).
+  ::  not $notebook-state). notebook-state appears in two places: the books
+  ::  map AND any stored %snapshot inside the requests map (r-notes), so both
+  ::  must be widened — state-13 froze both via notebook-state-13 / requests-13.
   ++  state-13-to-14
     ~>  %spin.['state-13-to-14']
     |=  s=state-13:n
     ^-  state-14:n
-    =/  new-books=(map flag:n [=net:n =notebook-state:n])
-      %-  ~(run by books.s)
-      |=  [=net:n nbs=notebook-state-13:n]
-      ^-  [net:n notebook-state:n]
-      :-  net
+    =/  widen-nbs
+      |=  nbs=notebook-state-13:n
+      ^-  notebook-state:n
       :*  notebook.nbs  members.nbs  visibility.nbs
           folders.nbs  notes.nbs  history.nbs  ~
       ==
-    [%14 new-books next-id.s published.s invites.s requests.s api-key.s rid-counter.s]
+    =/  new-books=(map flag:n [=net:n =notebook-state:n])
+      %-  ~(run by books.s)
+      |=  [=net:n nbs=notebook-state-13:n]
+      [net (widen-nbs nbs)]
+    =/  new-requests=requests:v1:n
+      %-  ~(run by requests.s)
+      |=  req=incoming-request-13:v1:n
+      ^-  incoming-request:v1:n
+      :*  id.req
+          http-id.req
+          poke-status.req
+          ::  widen any stored %snapshot's notebook-state with group=~
+          %+  bind  result.req
+          |=  rb=response-body-13:v1:n
+          ^-  response-body:v1:n
+          ?.  ?=([%ok %snapshot *] rb)  rb
+          =/  snap  r-notes.rb
+          [%ok %snapshot flag.snap visibility.snap (widen-nbs notebook-state.snap)]
+          final-at.req
+          fetched.req
+      ==
+    [%14 new-books next-id.s published.s invites.s new-requests api-key.s rid-counter.s]
   --
 ::
 ++  poke

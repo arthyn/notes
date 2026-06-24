@@ -405,6 +405,34 @@
         fetched=?
     ==
   +$  requests  (map request-id incoming-request)
+  ::  Frozen request chain for states 11–13. Identical to the live chain
+  ::  above except %snapshot carries notebook-state-13 (pre-group). state-13
+  ::  (and 11/12) transitively embed notebook-state via r-notes %snapshot
+  ::  inside the requests map, so the old states must freeze this chain too —
+  ::  freezing books alone left requests pointing at the group-bearing
+  ::  notebook-state and broke loads of any on-disk state with a stored
+  ::  snapshot in requests.
+  +$  r-notes-13
+    $%  [%snapshot =flag =visibility notebook-state=notebook-state-13]
+        [%update =flag =update]
+    ==
+  +$  response-body-13
+    $%  [%no-change ~]
+        [%ok r-notes=r-notes-13]
+        [%notebook summary=notebook-summary]
+        [%api-key key=(unit @t)]
+        [%error type=action-error message=tang]
+        [%pending status=poke-status]
+    ==
+  +$  incoming-request-13
+    $:  id=request-id
+        http-id=(unit @ta)
+        =poke-status
+        result=(unit response-body-13)
+        final-at=(unit @da)
+        fetched=?
+    ==
+  +$  requests-13  (map request-id incoming-request-13)
   --
 ::
 ::  Versioned state — newest first
@@ -432,7 +460,7 @@
       next-id=@ud
       published=(map [=flag note-id=@ud] @t)
       invites=(map flag invite-info)
-      requests=requests:v1
+      requests=requests-13:v1
       api-key=(unit @t)
       rid-counter=@ud
   ==
@@ -444,7 +472,7 @@
       next-id=@ud
       published=(map [=flag note-id=@ud] @t)
       invites=(map flag invite-info)
-      requests=requests:v1
+      requests=requests-13:v1
       api-key=(unit @t)
   ==
 ::
@@ -455,7 +483,7 @@
       next-id=@ud
       published=(map [=flag note-id=@ud] @t)
       invites=(map flag invite-info)
-      requests=requests:v1
+      requests=requests-13:v1
   ==
 ::
 ::  state-10: flag.name tightened to @tas slug (no requests map)
